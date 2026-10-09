@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "ancplua-anthropic",
+  "description": "ancplua's Claude Code plugins: the root of everything built for Claude.",
+  "owner": {
+    "name": "ancplua"
+  },
+  "plugins": [
+    {
+      "name": "docs",
+      "source": "./plugins/docs"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "docs",
+  "version": "0.1.0",
+  "description": "Grounds answers about Claude Code in the current official docs at code.claude.com.",
+  "author": {
+    "name": "ancplua"
+  },
+  "keywords": ["claude-code", "documentation"]
+}
