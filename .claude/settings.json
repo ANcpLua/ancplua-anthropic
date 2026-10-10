@@ -4,7 +4,23 @@
     "allow": [
       "Bash(node scripts/verify.mjs *)",
       "Bash(claude plugin validate *)",
-      "WebFetch(domain:code.claude.com)"
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:claude.com)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-verify.mjs"],
+            "timeout": 120,
+            "statusMessage": "verify.mjs"
+          }
+        ]
+      }
     ]
   }
 }

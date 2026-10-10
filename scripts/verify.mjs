@@ -1,46 +1,76 @@
 #!/usr/bin/env node
-// Every check this repository enforces, in one command. Run from the repo root:
+// Every check this repository enforces, in one command, runnable from any directory:
 //
-//   node scripts/verify.mjs                 schema + conventions
-//   node scripts/verify.mjs --base <ref>    also require a version bump for each
-//                                           plugin changed since <ref>
+//   node scripts/verify.mjs                 validator, directory checklist, house rules
+//   node scripts/verify.mjs --base <ref>    also require a higher version for each plugin
+//                                           changed since <ref>; CI passes this
 //
-// The rules live in .claude/rules/conventions.md. Requires Node 18+ and the
-// Claude Code CLI on PATH. Exits 1 on any failure.
+// The order follows the Authority section of CLAUDE.md, highest first:
+//   1. `claude plugin validate --strict` on the marketplace, each plugin directory and .claude
+//   2. the locally checkable Blocking rows of the directory's pre-submission checklist
+//   3. the ✓ house rules of CLAUDE.md; none repeats a validator check
+//
+// Gitignored files are invisible to every check. Needs Node 18+ and the Claude Code CLI on
+// PATH. Exits 1 on any failure; a clean run ends with "verify: all checks passed".
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+process.chdir(ROOT);
+
+const CHECKLIST = "https://claude.com/docs/plugins/pre-submission-checklist.md";
+const MARKETPLACE_NAME = "ancplua-anthropic";
+const PLUGIN_PREFIX = "ancplua-";
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const NAME_MAX = 64;
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const ENTRY_KEYS = new Set(["name", "source", "category", "tags", "relevance", "dependencies"]);
+const RESERVED_WHOLE_NAMES = new Set(["claude", "anthropic", "official", "plugin", "mcp", "test"]);
+const SYSTEM_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX"]);
+const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 
 const errors = [];
 const fail = (where, message) => errors.push(`${where}: ${message}`);
+const cite = (message) => `${message} (${CHECKLIST})`;
 
+const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+const gitList = (...args) => git("ls-files", "-z", ...args).split("\0").filter(Boolean);
+
+// --- Files: gitignored paths are invisible; directory checks read tracked files ---------------
+
+const ignoredPaths = new Set(
+  gitList("--others", "--ignored", "--exclude-standard", "--directory").map((p) => p.replace(/\/$/, "")),
+);
+
+function isIgnored(path) {
+  const parts = path.split(/[\\/]/);
+  for (let i = 1; i <= parts.length; i++) if (ignoredPaths.has(parts.slice(0, i).join("/"))) return true;
+  return false;
+}
+
+function entries(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((e) => !isIgnored(join(dir, e.name)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const subdirs = (dir) => entries(dir).filter((e) => e.isDirectory()).map((e) => e.name);
+
+const jsonCache = new Map();
 function readJson(path) {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    fail(path, `cannot read JSON (${error.message})`);
-    return undefined;
+  if (!jsonCache.has(path)) {
+    try {
+      jsonCache.set(path, JSON.parse(readFileSync(path, "utf8")));
+    } catch (error) {
+      fail(path, `cannot read JSON (${error.message})`);
+      jsonCache.set(path, undefined);
+    }
   }
-}
-
-function entries(path) {
-  return existsSync(path)
-    ? readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
-    : [];
-}
-
-const subdirs = (path) => entries(path).filter((e) => e.isDirectory()).map((e) => e.name);
-
-function checkName(where, name) {
-  if (typeof name !== "string" || !NAME.test(name) || name.length > NAME_MAX) {
-    fail(where, `name "${name}" must be lowercase kebab-case (${NAME.source}), max ${NAME_MAX} chars`);
-  }
+  return jsonCache.get(path);
 }
 
 function frontmatter(file) {
@@ -54,25 +84,97 @@ function frontmatter(file) {
   return fields;
 }
 
-// --- Schema: the real validator, warnings are failures -----------------------
+// --- 1. The validator: warnings are failures ----------------------------------------------------
 
-function runClaudeValidate(targets) {
-  const probe = spawnSync("claude", ["--version"], { encoding: "utf8", shell: process.platform === "win32" });
+function runValidator(targets) {
+  const shell = process.platform === "win32";
+  const probe = spawnSync("claude", ["--version"], { encoding: "utf8", shell });
   if (probe.error || probe.status !== 0) {
     fail("claude", "CLI not found on PATH; install Claude Code (npm install -g @anthropic-ai/claude-code)");
     return;
   }
   console.log(`verify: ${probe.stdout.trim()}`);
   for (const target of targets) {
-    const run = spawnSync("claude", ["plugin", "validate", target, "--strict"], {
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    });
-    if (run.status !== 0) fail(target, "claude plugin validate --strict failed (output above)");
+    const run = spawnSync("claude", ["plugin", "validate", target, "--strict"], { encoding: "utf8", shell });
+    const output = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
+    console.log(output);
+    if (run.status === 0) continue;
+    const findings = output.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("❯"));
+    const detail = findings.length ? `\n      ${findings.join("\n      ")}` : ` (${output.split("\n").pop()})`;
+    fail(target, `claude plugin validate --strict failed${detail}`);
   }
 }
 
-// --- Conventions --------------------------------------------------------------
+// --- 2. The directory's pre-submission checklist: the Blocking rows a local run can check -------
+
+function checkGitAttributes() {
+  for (const path of gitList().filter((p) => p.split("/").pop() === ".gitattributes")) {
+    const active = readFileSync(path, "utf8").split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith("#"));
+    if (active.some((l) => /(^|\s)(export-ignore|export-subst|filter(=|\s|$))/.test(l))) {
+      fail(path, cite("keep export-ignore, export-subst and content filters out of .gitattributes; validation stops on them"));
+    }
+  }
+}
+
+function checkChecklist(name) {
+  const root = `plugins/${name}`;
+
+  const readme = `${root}/README.md`;
+  if (!existsSync(readme)) {
+    fail(readme, cite("README missing: the directory shows it as the listing's description"));
+  } else {
+    const prose = readFileSync(readme, "utf8").replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
+    const words = prose.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+    if (words < 40) fail(readme, cite(`README too short: ${words} words outside code blocks, the directory needs 40`));
+  }
+
+  const manifest = existsSync(`${root}/.claude-plugin/plugin.json`) ? readJson(`${root}/.claude-plugin/plugin.json`) : undefined;
+  if (!existsSync(`${root}/LICENSE`) && !manifest?.license) {
+    fail(root, cite("License missing: add a LICENSE file or set license in plugin.json"));
+  }
+
+  if (/[^\x20-\x7e]/.test(name)) fail(root, cite("Non-ASCII identifier: use lowercase letters, digits and hyphens"));
+  if (RESERVED_WHOLE_NAMES.has(name.toLowerCase())) {
+    fail(root, cite(`"${name}" is a reserved word; build the name around your own project name`));
+  }
+
+  const depth = root.split("/").length;
+  const byLowerCase = new Map();
+  const reported = new Set();
+  const report = (where, message) => {
+    if (reported.has(`${where}\n${message}`)) return;
+    reported.add(`${where}\n${message}`);
+    fail(where, cite(message));
+  };
+  for (const line of git("ls-files", "-s", "-z", "--", root).split("\0").filter(Boolean)) {
+    const [meta, path] = line.split("\t");
+    const mode = meta.split(" ")[0];
+    if (mode === "120000") report(path, "symbolic link: commit regular files for everything the plugin loads");
+    if (mode === "160000") report(path, "Git submodule: commit regular files and folders");
+    const parts = path.split("/");
+    for (let i = depth + 1; i <= parts.length; i++) {
+      const segment = parts[i - 1];
+      const partial = parts.slice(0, i).join("/");
+      if (SYSTEM_FILES.has(segment)) report(partial, "macOS or Windows system file: remove it from the plugin folder");
+      if (segment.includes(":") || /[. ]$/.test(segment) || DEVICE_NAME.test(segment)) {
+        report(partial, "name must be valid on Windows and macOS: no colon, no trailing dot or space, no Windows device name");
+      }
+      const key = partial.toLowerCase();
+      if (byLowerCase.has(key) && byLowerCase.get(key) !== partial) {
+        report(partial, `differs only by capitalization from ${byLowerCase.get(key)}`);
+      }
+      byLowerCase.set(key, partial);
+    }
+  }
+}
+
+// --- 3. House rules: the ✓ lines of CLAUDE.md --------------------------------------------------
+
+function checkName(where, name) {
+  if (!NAME.test(name) || name.length > NAME_MAX) {
+    fail(where, `name "${name}" must be lowercase kebab-case (${NAME.source}), at most ${NAME_MAX} characters`);
+  }
+}
 
 function checkSkills(dir) {
   for (const entry of entries(dir)) {
@@ -82,9 +184,6 @@ function checkSkills(dir) {
       continue;
     }
     checkName(where, entry.name);
-    if (entry.name.toLowerCase() === "synced" || entry.name.toLowerCase().startsWith("anthropic-skills")) {
-      fail(where, "reserved skill name");
-    }
     const file = join(where, "SKILL.md");
     if (!existsSync(file)) {
       fail(where, "missing SKILL.md (exact case)");
@@ -95,8 +194,7 @@ function checkSkills(dir) {
       fail(file, "missing YAML frontmatter on line 1");
       continue;
     }
-    if (fields.name !== entry.name) fail(file, `frontmatter name "${fields.name}" must equal directory "${entry.name}"`);
-    if (!fields.description) fail(file, "frontmatter needs a description");
+    if (fields.name !== entry.name) fail(file, `frontmatter name "${fields.name}" must equal the directory name "${entry.name}"`);
   }
 }
 
@@ -110,8 +208,7 @@ function checkAgents(dir) {
     const stem = entry.name.slice(0, -3);
     checkName(where, stem);
     const fields = frontmatter(where);
-    if (fields?.name !== stem) fail(where, `frontmatter name "${fields?.name}" must equal file name "${stem}"`);
-    if (!fields?.description) fail(where, "frontmatter needs a description");
+    if (fields?.name !== stem) fail(where, `frontmatter name "${fields?.name}" must equal the file name "${stem}"`);
   }
 }
 
@@ -120,9 +217,7 @@ function checkMarketplace() {
   const marketplace = readJson(path);
   if (!marketplace) return;
 
-  checkName(`${path} name`, marketplace.name);
-  const repo = process.env.GITHUB_REPOSITORY?.split("/")[1];
-  if (repo && marketplace.name !== repo) fail(`${path} name`, `"${marketplace.name}" must equal the repository name "${repo}"`);
+  if (marketplace.name !== MARKETPLACE_NAME) fail(`${path} name`, `must be "${MARKETPLACE_NAME}", the repository name`);
 
   const list = Array.isArray(marketplace.plugins) ? marketplace.plugins : [];
   const names = list.map((entry) => entry.name);
@@ -130,10 +225,9 @@ function checkMarketplace() {
 
   for (const entry of list) {
     const where = `${path} plugins[${entry.name}]`;
-    checkName(where, entry.name);
     if (entry.source !== `./plugins/${entry.name}`) fail(where, `source must be "./plugins/${entry.name}"`);
     for (const key of Object.keys(entry)) {
-      if (!ENTRY_KEYS.has(key)) fail(where, `"${key}" belongs in plugins/${entry.name}/.claude-plugin/plugin.json, not the entry`);
+      if (!ENTRY_KEYS.has(key)) fail(where, `"${key}" belongs in plugins/${entry.name}/.claude-plugin/plugin.json, not in the entry`);
     }
   }
 
@@ -143,35 +237,32 @@ function checkMarketplace() {
 }
 
 function checkPlugin(name) {
-  const root = join("plugins", name);
-  checkName(root, name);
+  const root = `plugins/${name}`;
+  if (!name.startsWith(PLUGIN_PREFIX)) fail(root, `plugin name must start with "${PLUGIN_PREFIX}"`);
 
-  const manifestDir = join(root, ".claude-plugin");
-  const manifestPath = join(manifestDir, "plugin.json");
-  if (!existsSync(manifestPath)) {
-    fail(root, "missing .claude-plugin/plugin.json");
-  } else {
-    const extra = entries(manifestDir).map((e) => e.name).filter((n) => n !== "plugin.json");
-    if (extra.length) fail(manifestDir, `only plugin.json belongs here, found: ${extra.join(", ")}`);
-    const manifest = readJson(manifestPath);
-    if (manifest) {
-      if (manifest.name !== name) fail(manifestPath, `name "${manifest.name}" must equal directory "${name}"`);
-      if (!SEMVER.test(manifest.version ?? "")) fail(manifestPath, `version "${manifest.version}" must be semver (x.y.z)`);
-      if (!manifest.description) fail(manifestPath, "missing description");
-      if (!manifest.author?.name) fail(manifestPath, "missing author.name");
+  const manifestDir = `${root}/.claude-plugin`;
+  const extra = entries(manifestDir).map((e) => e.name).filter((n) => n !== "plugin.json");
+  if (extra.length) fail(manifestDir, `only plugin.json belongs here, found: ${extra.join(", ")}`);
+
+  const manifestPath = `${manifestDir}/plugin.json`;
+  const manifest = existsSync(manifestPath) ? readJson(manifestPath) : undefined;
+  if (manifest) {
+    if (manifest.name !== name) fail(manifestPath, `name "${manifest.name}" must equal the directory name "${name}"`);
+    if (manifest.version !== undefined && !SEMVER.test(manifest.version)) {
+      fail(manifestPath, `version "${manifest.version}" must be semver (x.y.z)`);
     }
+    if (!manifest.license) fail(manifestPath, "set license (an SPDX id) beside the LICENSE file");
   }
+  if (!existsSync(`${root}/LICENSE`)) fail(`${root}/LICENSE`, "every plugin ships a LICENSE file beside plugin.json's license");
 
-  for (const file of ["CLAUDE.md", "AGENTS.md"]) {
-    if (existsSync(join(root, file))) fail(join(root, file), "never loads from a plugin; move the instructions into a skill");
-  }
-  if (existsSync(join(root, "commands"))) fail(join(root, "commands"), "write slash commands as skills/<name>/SKILL.md");
+  if (existsSync(`${root}/AGENTS.md`)) fail(`${root}/AGENTS.md`, "never loads from a plugin; move the instructions into a skill");
+  if (existsSync(`${root}/commands`)) fail(`${root}/commands`, "write slash commands as skills/<name>/SKILL.md");
 
-  checkSkills(join(root, "skills"));
-  checkAgents(join(root, "agents"));
+  checkSkills(`${root}/skills`);
+  checkAgents(`${root}/agents`);
 }
 
-// --- Versions: a changed plugin needs a higher version --------------------------
+// --- Versions: a plugin changed since --base needs a higher version ------------------------------
 
 function compareSemver(a, b) {
   const [x, y] = [SEMVER.exec(a ?? ""), SEMVER.exec(b ?? "")];
@@ -181,7 +272,6 @@ function compareSemver(a, b) {
 }
 
 function checkVersionBumps(base, plugins) {
-  const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   try {
     git("rev-parse", "--verify", `${base}^{commit}`);
   } catch {
@@ -189,29 +279,29 @@ function checkVersionBumps(base, plugins) {
     return;
   }
   for (const name of plugins) {
-    if (!git("diff", "--name-only", base, "--", `plugins/${name}`)) continue;
+    if (!git("diff", "--name-only", base, "--", `plugins/${name}`).trim()) continue;
     let before;
     try {
       before = JSON.parse(git("show", `${base}:plugins/${name}/.claude-plugin/plugin.json`)).version;
     } catch {
       continue; // plugin is new since base
     }
-    const now = readJson(join("plugins", name, ".claude-plugin", "plugin.json"))?.version;
+    const now = readJson(`plugins/${name}/.claude-plugin/plugin.json`)?.version;
     if (!(compareSemver(now, before) > 0)) {
       fail(`plugins/${name}`, `changed since ${base.slice(0, 12)} but version ${now} is not above ${before}`);
     }
   }
 }
 
-// --- Run ------------------------------------------------------------------------
-
-if (!existsSync(".claude-plugin/marketplace.json")) {
-  console.error("verify: run from the repository root");
-  process.exit(1);
-}
+// --- Run ----------------------------------------------------------------------------------------
 
 const plugins = subdirs("plugins");
-runClaudeValidate([".", ...plugins.map((p) => `./plugins/${p}`), ...(existsSync(".claude/skills") ? ["./.claude/skills"] : [])]);
+
+runValidator([".", ...plugins.map((p) => `./plugins/${p}`), ...(existsSync(".claude") ? ["./.claude"] : [])]);
+
+checkGitAttributes();
+plugins.forEach(checkChecklist);
+
 checkMarketplace();
 plugins.forEach(checkPlugin);
 checkSkills(".claude/skills");
