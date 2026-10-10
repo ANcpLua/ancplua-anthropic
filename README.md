@@ -9,7 +9,7 @@ claude plugin marketplace add ANcpLua/ancplua-anthropic
 claude plugin install ancplua-docs@ancplua-anthropic
 ```
 
-Inside a session, the same commands work as `/plugin marketplace add …` and `/plugin install …`.
+Inside a session, `/plugin marketplace add ANcpLua/ancplua-anthropic` adds the marketplace the same way, and `/plugin install ancplua-docs@ancplua-anthropic` opens the plugin's details in the `/plugin` panel, where you install it.
 
 | Plugin | What it does |
 | :-- | :-- |
@@ -59,7 +59,7 @@ node scripts/verify.mjs                  # from any directory
 node scripts/verify.mjs --base main      # also require version bumps for changed plugins
 ```
 
-In the order of authority set in [`CLAUDE.md`](CLAUDE.md): `claude plugin validate --strict` on the marketplace, every plugin and `.claude`; then the locally checkable blocking rows of the directory's [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist.md), README and license among them; then the ✓ house rules. CI runs the same command with `--base` on every push to `main` and every pull request.
+In the order of authority set in [`CLAUDE.md`](CLAUDE.md): `claude plugin validate --strict` on the marketplace, every plugin and `.claude`; then the rows of the directory's [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist.md) on README, license, plugin name, file names, links and submodules, `SKILL.md` spelling and `.gitattributes`; then the ✓ house rules. Gitignored files count for none of these checks. CI runs the same command with `--base` on every push to `main` and every pull request.
 
 The project Stop hook in `.claude/settings.json` runs the same script when Claude stops. On a failure it blocks the stop once per distinct failure per session with the full report, so Claude fixes it before handing back.
 

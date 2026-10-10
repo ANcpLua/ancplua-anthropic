@@ -7,14 +7,29 @@
 //
 // The order follows the Authority section of CLAUDE.md, highest first:
 //   1. `claude plugin validate --strict` on the marketplace, each plugin directory and .claude
-//   2. the locally checkable Blocking rows of the directory's pre-submission checklist
+//   2. the directory's pre-submission checklist rows on README, license, plugin name, file names,
+//      links and submodules, SKILL.md spelling and .gitattributes
 //   3. the ✓ house rules of CLAUDE.md; none repeats a validator check
 //
-// Gitignored files are invisible to every check. Needs Node 18+ and the Claude Code CLI on
-// PATH. Exits 1 on any failure; a clean run ends with "verify: all checks passed".
+// Gitignored files are invisible to every check: the validator runs on a temporary copy of the
+// tracked and unignored files. Needs Node 18+ and the Claude Code CLI on PATH. Exits 1 on any
+// failure; a clean run ends with "verify: all checks passed".
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,6 +66,8 @@ function isIgnored(path) {
   return false;
 }
 
+const present = (path) => existsSync(path) && !isIgnored(path);
+
 function entries(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
@@ -86,6 +103,22 @@ function frontmatter(file) {
 
 // --- 1. The validator: warnings are failures ----------------------------------------------------
 
+// The validator reads the disk and knows nothing of .gitignore, so it runs on a temporary copy of
+// the tracked and unignored files.
+function visibleCopy() {
+  const copy = mkdtempSync(join(tmpdir(), "ancplua-verify-"));
+  for (const path of gitList("--cached", "--others", "--exclude-standard")) {
+    if (!existsSync(path)) continue; // deleted in the working tree
+    const target = join(copy, path);
+    mkdirSync(dirname(target), { recursive: true });
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) symlinkSync(readlinkSync(path), target);
+    else if (stat.isFile()) copyFileSync(path, target);
+    else mkdirSync(target, { recursive: true }); // a submodule
+  }
+  return copy;
+}
+
 function runValidator(targets) {
   const shell = process.platform === "win32";
   const probe = spawnSync("claude", ["--version"], { encoding: "utf8", shell });
@@ -94,18 +127,26 @@ function runValidator(targets) {
     return;
   }
   console.log(`verify: ${probe.stdout.trim()}`);
-  for (const target of targets) {
-    const run = spawnSync("claude", ["plugin", "validate", target, "--strict"], { encoding: "utf8", shell });
-    const output = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
-    console.log(output);
-    if (run.status === 0) continue;
-    const findings = output.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("❯"));
-    const detail = findings.length ? `\n      ${findings.join("\n      ")}` : ` (${output.split("\n").pop()})`;
-    fail(target, `claude plugin validate --strict failed${detail}`);
+  const copy = visibleCopy();
+  // Messages name the paths in this checkout, not in the copy; the real path first, as on macOS
+  // it contains the tmpdir() path.
+  const here = (text) => [realpathSync(copy), copy].reduce((t, p) => t.replaceAll(p, ROOT), text);
+  try {
+    for (const target of targets) {
+      const run = spawnSync("claude", ["plugin", "validate", target, "--strict"], { cwd: copy, encoding: "utf8", shell });
+      const output = here(`${run.stdout ?? ""}${run.stderr ?? ""}`.trim());
+      console.log(output);
+      if (run.status === 0) continue;
+      const findings = output.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("❯"));
+      const detail = findings.length ? `\n      ${findings.join("\n      ")}` : ` (${output.split("\n").pop()})`;
+      fail(target, `claude plugin validate --strict failed${detail}`);
+    }
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
   }
 }
 
-// --- 2. The directory's pre-submission checklist: the Blocking rows a local run can check -------
+// --- 2. The directory's pre-submission checklist: the rows a local run can check ----------------
 
 function checkGitAttributes() {
   for (const path of gitList().filter((p) => p.split("/").pop() === ".gitattributes")) {
@@ -120,7 +161,7 @@ function checkChecklist(name) {
   const root = `plugins/${name}`;
 
   const readme = `${root}/README.md`;
-  if (!existsSync(readme)) {
+  if (!present(readme)) {
     fail(readme, cite("README missing: the directory shows it as the listing's description"));
   } else {
     const prose = readFileSync(readme, "utf8").replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
@@ -128,8 +169,8 @@ function checkChecklist(name) {
     if (words < 40) fail(readme, cite(`README too short: ${words} words outside code blocks, the directory needs 40`));
   }
 
-  const manifest = existsSync(`${root}/.claude-plugin/plugin.json`) ? readJson(`${root}/.claude-plugin/plugin.json`) : undefined;
-  if (!existsSync(`${root}/LICENSE`) && !manifest?.license) {
+  const manifest = present(`${root}/.claude-plugin/plugin.json`) ? readJson(`${root}/.claude-plugin/plugin.json`) : undefined;
+  if (!present(`${root}/LICENSE`) && !manifest?.license) {
     fail(root, cite("License missing: add a LICENSE file or set license in plugin.json"));
   }
 
@@ -185,8 +226,9 @@ function checkSkills(dir) {
     }
     checkName(where, entry.name);
     const file = join(where, "SKILL.md");
-    if (!existsSync(file)) {
-      fail(where, "missing SKILL.md (exact case)");
+    // By name, not existsSync: a case-insensitive disk would accept skill.md
+    if (!entries(where).some((e) => e.name === "SKILL.md")) {
+      fail(where, cite("missing SKILL.md, spelled exactly so"));
       continue;
     }
     const fields = frontmatter(file);
@@ -245,7 +287,7 @@ function checkPlugin(name) {
   if (extra.length) fail(manifestDir, `only plugin.json belongs here, found: ${extra.join(", ")}`);
 
   const manifestPath = `${manifestDir}/plugin.json`;
-  const manifest = existsSync(manifestPath) ? readJson(manifestPath) : undefined;
+  const manifest = present(manifestPath) ? readJson(manifestPath) : undefined;
   if (manifest) {
     if (manifest.name !== name) fail(manifestPath, `name "${manifest.name}" must equal the directory name "${name}"`);
     if (manifest.version !== undefined && !SEMVER.test(manifest.version)) {
@@ -253,10 +295,10 @@ function checkPlugin(name) {
     }
     if (!manifest.license) fail(manifestPath, "set license (an SPDX id) beside the LICENSE file");
   }
-  if (!existsSync(`${root}/LICENSE`)) fail(`${root}/LICENSE`, "every plugin ships a LICENSE file beside plugin.json's license");
+  if (!present(`${root}/LICENSE`)) fail(`${root}/LICENSE`, "every plugin ships a LICENSE file beside plugin.json's license");
 
-  if (existsSync(`${root}/AGENTS.md`)) fail(`${root}/AGENTS.md`, "never loads from a plugin; move the instructions into a skill");
-  if (existsSync(`${root}/commands`)) fail(`${root}/commands`, "write slash commands as skills/<name>/SKILL.md");
+  if (present(`${root}/AGENTS.md`)) fail(`${root}/AGENTS.md`, "instructions ship as skills: move them into skills/<name>/SKILL.md");
+  if (present(`${root}/commands`)) fail(`${root}/commands`, "slash commands ship as skills: write skills/<name>/SKILL.md");
 
   checkSkills(`${root}/skills`);
   checkAgents(`${root}/agents`);
@@ -275,7 +317,7 @@ function checkVersionBumps(base, plugins) {
   try {
     git("rev-parse", "--verify", `${base}^{commit}`);
   } catch {
-    console.log(`verify: base "${base}" is not a commit here; skipping the version check`);
+    fail("--base", `"${base}" is not a commit here, so the version check cannot run; fetch it first`);
     return;
   }
   for (const name of plugins) {
@@ -297,7 +339,7 @@ function checkVersionBumps(base, plugins) {
 
 const plugins = subdirs("plugins");
 
-runValidator([".", ...plugins.map((p) => `./plugins/${p}`), ...(existsSync(".claude") ? ["./.claude"] : [])]);
+runValidator([".", ...plugins.map((p) => `./plugins/${p}`), ...(present(".claude") ? ["./.claude"] : [])]);
 
 checkGitAttributes();
 plugins.forEach(checkChecklist);

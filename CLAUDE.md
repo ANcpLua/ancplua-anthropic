@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository (GitHub: ANcpLua/ancplua-anthropic) is the `ancplua-anthropic` plugin marketplace: the single root for everything ANcpLua builds for Claude. Everything here ships as a plugin under `plugins/<name>/`, listed in `.claude-plugin/marketplace.json` and meant for Anthropic's directory. `.claude/` configures sessions in this repository only and ships nowhere.
+This repository (GitHub: ANcpLua/ancplua-anthropic) is the `ancplua-anthropic` plugin marketplace: the single root for everything ANcpLua builds for Claude. Everything here ships as a plugin under `plugins/<name>/`, listed in `.claude-plugin/marketplace.json` and meant for Anthropic's directory. `.claude/` configures sessions in this repository only and is never part of a plugin.
 
 https://claude.com/docs/plugins/platform-support.md alone defines which surfaces exist and what each loads. This file never lists surfaces.
 
@@ -20,14 +20,14 @@ Only our own choices; a platform rule is never restated here, the validator and 
 
 Names
 
-- Every plugin name starts with `ancplua-`, the distinctive project name the directory asks for. ✓
+- Every plugin name starts with `ancplua-`, our project name; the directory's naming rows are in https://claude.com/docs/plugins/pre-submission-checklist.md. ✓
 - A plugin's directory, its `plugin.json` `name` and its marketplace entry `name` are the same string. ✓
 - The marketplace is named `ancplua-anthropic`, the repository name. ✓
-- Skill and agent names are lowercase kebab-case of at most 64 characters, so one folder passes Claude Code and the Agent Skills spec alike. ✓
+- Skill names follow the `name` field of https://agentskills.io/specification, and agent names use the same pattern. ✓
 
 Marketplace
 
-- An entry is exactly `{ "name": "<name>", "source": "./plugins/<name>" }`, plus optional `category`, `tags`, `relevance` and `dependencies`. Display fields live only in `plugin.json`, because an entry value would silently override it. ✓
+- An entry is exactly `{ "name": "<name>", "source": "./plugins/<name>" }`, plus optional `category`, `tags`, `relevance` and `dependencies`. Display fields live only in `plugin.json`; https://code.claude.com/docs/en/plugins/marketplace-reference.md#entry-and-plugin-json says how an entry combines with it. ✓
 - Entries are sorted by name. Every `plugins/` directory has an entry and every entry has a directory. ✓
 
 Plugins
@@ -36,8 +36,8 @@ Plugins
 - `version` is semver. Every change under a plugin raises it ✓ (`--base`, which CI passes).
 - Every plugin ships a `LICENSE` file and sets `license` in `plugin.json`. ✓
 - Instructions and slash commands ship as skills: no `commands/` directory and no `AGENTS.md` at a plugin root. ✓
-- Every skill sets frontmatter `name` equal to its directory. Agents are flat `agents/<name>.md` files whose frontmatter `name` equals the file name. ✓
-- Skills use the Agent Skills fields (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`); a Claude Code-only field is added only when the skill needs that feature.
+- `skills/` holds only `<skill>/` directories, and every skill sets frontmatter `name` as the Agent Skills specification requires. Agents are flat `agents/<name>.md` files whose frontmatter `name` equals the file name. ✓
+- Skills use only the frontmatter fields of https://agentskills.io/specification; a Claude Code-only field is added only when the skill needs that feature.
 
 Repository
 

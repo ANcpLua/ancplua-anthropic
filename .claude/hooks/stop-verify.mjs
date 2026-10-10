@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Project Stop hook, wired in .claude/settings.json. It runs scripts/verify.mjs in the git root
-// of the session's cwd, so a worktree checks itself. On a failure it exits 2 with the whole
+// of the session's cwd, so a worktree checks itself, and only when that root is this marketplace:
+// another repository's script is never run. On a failure it exits 2 with the whole
 // report on stderr, validator messages included, once per distinct failure per session_id; that
 // memory lives in the OS temp directory. It reads no stop_hook_active on purpose: /goal is itself
 // a Stop hook and sets that flag on every continuation, and this hook cannot loop because the
@@ -23,6 +24,13 @@ const cwd = typeof input.cwd === "string" && existsSync(input.cwd) ? input.cwd :
 const top = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8" });
 if (top.status !== 0) process.exit(0); // not a git checkout: nothing to verify
 const root = top.stdout.trim();
+let marketplace;
+try {
+  marketplace = JSON.parse(readFileSync(join(root, ".claude-plugin", "marketplace.json"), "utf8"));
+} catch {
+  // no marketplace: another repository
+}
+if (marketplace?.name !== "ancplua-anthropic") process.exit(0); // another repository: not ours to verify
 const script = join(root, "scripts", "verify.mjs");
 if (!existsSync(script)) process.exit(0); // a checkout without the script: nothing to verify
 
