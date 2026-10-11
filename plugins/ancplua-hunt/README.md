@@ -3,7 +3,8 @@
 Runs Claude Opus bug hunters in parallel and returns proven fixes for your session to judge. The `hunt` skill runs up to
 five hunters on your machine on one issue, each in its own throwaway clone with a different angle: reproduce, trace,
 skeptic, history and contract. The `cloud-hunt` skill runs three to five hunters in Anthropic's cloud sandbox as a Claude
-Managed Agent, on a whole public repository, a scope or an issue. They prove the hardest bugs with tests that fail
+Managed Agent, on a whole public repository, a scope or an issue, with related repositories cloned beside it when the cause
+may sit there. They prove the hardest bugs with tests that fail
 before the fix, fix them with the smallest change, and delete code no input can reach. Your session reads the report,
 decides what holds, and ships it through the repository's normal review. The hunters never push, publish or touch
 accounts.

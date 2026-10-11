@@ -1,6 +1,6 @@
 {
   "name": "ancplua-hunt",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Node dependencies of the ancplua-hunt plugin's skills",
   "license": "Apache-2.0",

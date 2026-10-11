@@ -40,6 +40,8 @@ const HELP = `cloud-hunt: parallel Claude Opus bug hunters on a public GitHub re
 
   --repo <owner/name>      the repository, or its GitHub URL; cloned in the sandbox with plain git
   --commit/--pr/--ref      what to hunt on (default: the head of the default branch)
+  --also <owner/name[@ref]> a related public repository the cause or fix may sit in, at a branch, tag or
+                           commit (default: its default branch); cloned beside the first; repeatable
   --issue <file>           hunt the root cause of this issue (or --issue-text "<text>")
   --scope "<text>"         what to sweep without an issue, e.g. "src/Parser" (default: the whole repository)
   --hunters <3-5>          parallel hunters (default 4)
@@ -56,7 +58,7 @@ const HELP = `cloud-hunt: parallel Claude Opus bug hunters on a public GitHub re
 `;
 
 function parseArgs(argv) {
-  const a = { hunters: 4, effort: "xhigh", budget: 40, iterations: 2, cap: DEFAULT_CAP, minutes: 120, poll: 30 };
+  const a = { also: [], hunters: 4, effort: "xhigh", budget: 40, iterations: 2, cap: DEFAULT_CAP, minutes: 120, poll: 30 };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const next = () => {
@@ -65,6 +67,7 @@ function parseArgs(argv) {
     };
     switch (k) {
       case "--repo": a.repo = next(); break;
+      case "--also": a.also.push(next()); break;
       case "--commit": a.commit = next(); break;
       case "--pr": a.pr = next(); break;
       case "--ref": a.ref = next(); break;
@@ -184,6 +187,25 @@ async function resolveCommit(repo, { commit, pr, ref }) {
   return { sha: (await github(`/repos/${repo}/commits/${encodeURIComponent(branch)}`)).sha, ref: branch };
 }
 
+// --also <owner/name[@ref]>: the ref after the last @ may hold slashes (feature/x); a bare SSH URL
+// such as git@github.com:owner/name.git has no ref.
+async function resolveAlso(spec, primary) {
+  const at = spec.lastIndexOf("@");
+  let repo = null;
+  let ref;
+  if (at > 0) {
+    try {
+      repo = normalizeRepo(spec.slice(0, at));
+      ref = spec.slice(at + 1) || undefined;
+    } catch { /* the @ belongs to the URL */ }
+  }
+  repo ??= normalizeRepo(spec);
+  if (repo.toLowerCase() === primary.toLowerCase()) throw new Error(`--also ${spec} is the repository being hunted`);
+  const commit = ref && /^[0-9a-f]{7,40}$/i.test(ref) ? ref : undefined;
+  const target = await resolveCommit(repo, { commit, ref: commit ? undefined : ref });
+  return { repo, name: repo.split("/")[1], sha: target.sha };
+}
+
 function loadTemplates() {
   const hash = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
   const agentText = fs.readFileSync(path.join(ASSETS, "agent.md"), "utf8");
@@ -245,12 +267,16 @@ async function ensureResources(key, t) {
   return { agent, environment: env };
 }
 
-function describe({ repo, target, hunters, issue, scope }) {
+function describe({ repo, target, also, hunters, issue, scope }) {
   const where = `https://github.com/${repo} at commit ${target.sha}${target.pr ? ` (the head of pull request #${target.pr})` : ""}`;
   const job = issue
     ? `Find, prove and fix the root cause of the issue below, and any other bug you prove on the way, in ${where}${scope ? `; scope: ${scope}` : ""}.`
     : `Hunt the hardest bugs in ${scope || "the whole repository"} of ${where}.`;
-  return `${job} Work with ${hunters} parallel hunters as your instructions describe. Deliver /mnt/session/outputs/report.md, /mnt/session/outputs/fix.patch when anything was proven, and each hunter's hunter-<n>.md and hunter-<n>.patch.${issue ? `\n\n<issue>\n${issue.trim()}\n</issue>` : ""}`;
+  const related = also.length
+    ? ` The cause or the fix may also sit in these related repositories; clone each beside it: ${also.map((r) => `https://github.com/${r.repo} at commit ${r.sha} into /workspace/also/${r.name}`).join("; ")}.`
+    : "";
+  const patches = also.map((r) => `, /mnt/session/outputs/fix-${r.name}.patch when ${r.repo} changed`).join("");
+  return `${job}${related} Work with ${hunters} parallel hunters as your instructions describe. Deliver /mnt/session/outputs/report.md, /mnt/session/outputs/fix.patch when anything was proven${patches}, and each hunter's report and patches.${issue ? `\n\n<issue>\n${issue.trim()}\n</issue>` : ""}`;
 }
 
 function rubric(extraFile) {
@@ -353,8 +379,8 @@ async function finish(key, sessionId, a, out, meta) {
   const saved = await download(key, sessionId, out);
   const oc = session.outcome_evaluations?.[session.outcome_evaluations.length - 1];
   const report = saved.includes("report.md") ? path.join(out, "report.md") : null;
-  const fix = saved.includes("fix.patch") ? path.join(out, "fix.patch") : null;
-  emit(`DONE ${sessionId}: ${reason}${oc ? `, grader ${oc.result}` : ""}; ${usd(cost)}; ledger ${usd(readLedger().spent)}/${usd(a.cap)}; ${saved.length} files in ${out}${report ? `; read ${report}` : "; no report.md, check the console"}${fix ? `; patch ${fix}` : ""}`);
+  const fixes = saved.filter((n) => /^fix(-.+)?\.patch$/.test(n)).sort().map((n) => path.join(out, n));
+  emit(`DONE ${sessionId}: ${reason}${oc ? `, grader ${oc.result}` : ""}; ${usd(cost)}; ledger ${usd(readLedger().spent)}/${usd(a.cap)}; ${saved.length} files in ${out}${report ? `; read ${report}` : "; no report.md, check the console"}${fixes.length ? `; patch ${fixes.join(", ")}` : ""}`);
 }
 
 function outDir(a, sessionId) {
@@ -402,6 +428,13 @@ async function main() {
   const issue = a.issueText ?? (a.issue ? fs.readFileSync(expandHome(a.issue), "utf8") : null);
   if (issue !== null && !issue.trim()) throw new Error("the issue is empty");
   const target = await resolveCommit(repo, { commit: a.commit, pr: a.pr, ref: a.ref });
+  const also = [];
+  for (const spec of a.also) {
+    const r = await resolveAlso(spec, repo);
+    if (also.some((x) => x.name.toLowerCase() === r.name.toLowerCase())) throw new Error(`two --also repositories are named ${r.name}`);
+    also.push(r);
+  }
+  const alsoText = also.map((r) => ` + ${r.repo}@${r.sha.slice(0, 12)}`).join("");
   const state = readState();
 
   const overrideEffort = a.effort !== templates.agent.model?.effort;
@@ -412,11 +445,11 @@ async function main() {
   const request = {
     agent: agentRef(state.agent?.id || "<agent id from setup>", state.agent?.version || 1),
     environment_id: state.environment?.id || "<environment id from setup>",
-    title: oneLine(`hunt ${repo}@${target.sha.slice(0, 7)}: ${subject}`, 120),
+    title: oneLine(`hunt ${repo}@${target.sha.slice(0, 7)}${also.length ? ` +${also.length}` : ""}: ${subject}`, 120),
     budget: { type: "limit", max_list_cost: { amount: String(Math.round(a.budget * 100)), currency: "USD" } },
     initial_events: [{
       type: "user.define_outcome",
-      description: describe({ repo, target, hunters: a.hunters, issue, scope: a.scope }),
+      description: describe({ repo, target, also, hunters: a.hunters, issue, scope: a.scope }),
       rubric: { type: "text", content: rubric(a.extraRubric) },
       max_iterations: a.iterations,
     }],
@@ -428,7 +461,7 @@ async function main() {
       state.agent?.hash === templates.agentHash ? null : "agent",
     ].filter(Boolean);
     console.log(JSON.stringify(request, null, 2));
-    console.log(`DRY RUN: ${repo}@${target.sha.slice(0, 12)}${target.pr ? ` (PR #${target.pr})` : ""}, ${a.hunters} hunters, effort ${a.effort}, budget ${usd(a.budget)}, ledger ${usd(ledger.spent)}/${usd(a.cap)}${pending.length ? `; a real run first creates or updates the ${pending.join(" and ")}` : ""}. Nothing was sent to Anthropic.`);
+    console.log(`DRY RUN: ${repo}@${target.sha.slice(0, 12)}${target.pr ? ` (PR #${target.pr})` : ""}${alsoText}, ${a.hunters} hunters, effort ${a.effort}, budget ${usd(a.budget)}, ledger ${usd(ledger.spent)}/${usd(a.cap)}${pending.length ? `; a real run first creates or updates the ${pending.join(" and ")}` : ""}. Nothing was sent to Anthropic.`);
     return;
   }
 
@@ -440,9 +473,9 @@ async function main() {
   const out = outDir(a, created.id);
   if (issue) fs.writeFileSync(path.join(out, "issue.md"), issue);
   fs.writeFileSync(path.join(out, "request.json"), `${JSON.stringify(request, null, 2)}\n`);
-  emit(`CLOUD ${created.id} started: ${repo}@${target.sha.slice(0, 12)}${target.pr ? ` (PR #${target.pr})` : ""}, ${a.hunters} hunters, effort ${a.effort}, budget ${usd(a.budget)}, out ${out}`);
+  emit(`CLOUD ${created.id} started: ${repo}@${target.sha.slice(0, 12)}${target.pr ? ` (PR #${target.pr})` : ""}${alsoText}, ${a.hunters} hunters, effort ${a.effort}, budget ${usd(a.budget)}, out ${out}`);
   emit(`CLOUD console: ${consoleUrl(created.id)}`);
-  return finish(key, created.id, a, out, { repo, sha: target.sha });
+  return finish(key, created.id, a, out, { repo, sha: target.sha, ...(also.length ? { also: also.map((r) => `${r.repo}@${r.sha}`) } : {}) });
 }
 
 main().catch((e) => {
