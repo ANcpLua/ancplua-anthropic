@@ -35,6 +35,9 @@ ANCPLUA_HUNT_KEYCHAIN_ACCOUNT=<account name>
 ANCPLUA_HUNT_CAP=100
 ```
 
+Both launchers look for Bun on PATH, then in `$BUN_INSTALL/bin/bun` and `$HOME/.bun/bin/bun`. If it is
+missing, they print the official installation command and exit before installing packages or reading the keychain.
+
 Both skills call the Claude API with that key, never the `claude` CLI, so the spend comes out of the API account's
 credits and not out of a Claude subscription. `cloud-hunt` works on public GitHub repositories only: the sandbox clones
 them without a token.

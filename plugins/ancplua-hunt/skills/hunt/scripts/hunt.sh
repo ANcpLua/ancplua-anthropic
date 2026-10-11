@@ -10,6 +10,18 @@
 #   ANCPLUA_HUNT_KEYCHAIN_ACCOUNT  keychain account name (optional)
 #   ANCPLUA_HUNT_CAP               total spend cap in USD (default 100)
 set -eu
+# Resolve the runtime before configuration, package installation or keychain access.
+BUN=$(command -v bun || true)
+if [ -z "$BUN" ] && [ -n "${BUN_INSTALL:-}" ] && [ -x "$BUN_INSTALL/bin/bun" ]; then
+  BUN="$BUN_INSTALL/bin/bun"
+fi
+if [ -z "$BUN" ] && [ -x "$HOME/.bun/bin/bun" ]; then
+  BUN="$HOME/.bun/bin/bun"
+fi
+if [ -z "$BUN" ]; then
+  echo 'ancplua-hunt requires Bun 1.4 or later; install: curl -fsSL https://bun.com/install | bash' >&2
+  exit 2
+fi
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 HUNT_HOME=${ANCPLUA_HUNT_HOME:-$HOME/.ancplua-hunt}
@@ -29,7 +41,7 @@ fi
 
 if [ ! -d "$PLUGIN_ROOT/node_modules/@anthropic-ai/claude-agent-sdk" ]; then
   echo "ancplua-hunt: installing the pinned Claude Agent SDK (first run only)" >&2
-  (cd "$PLUGIN_ROOT" && bun install --frozen-lockfile --ignore-scripts --silent >&2)
+  (cd "$PLUGIN_ROOT" && "$BUN" install --frozen-lockfile --ignore-scripts --silent >&2)
 fi
 
 case " $* " in
@@ -52,4 +64,4 @@ case " $* " in
     ;;
 esac
 
-exec bun "$SCRIPT_DIR/hunt.mjs" "$@"
+exec "$BUN" "$SCRIPT_DIR/hunt.mjs" "$@"
