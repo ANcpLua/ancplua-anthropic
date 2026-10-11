@@ -14,6 +14,7 @@ Inside a session, `/plugin marketplace add ANcpLua/ancplua-anthropic` adds the m
 | Plugin | What it does |
 | :-- | :-- |
 | [`ancplua-docs`](plugins/ancplua-docs) | Grounds answers about Claude and Claude Code in the current official docs |
+| [`ancplua-hunt`](plugins/ancplua-hunt) | Runs parallel Opus bug hunters, locally on one issue or in Anthropic's cloud on a whole repository, and returns proven fixes |
 
 ## Layout
 
