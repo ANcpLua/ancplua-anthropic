@@ -1,8 +1,8 @@
 #!/bin/sh
 # Wrapper for hunt.mjs.
-# - Makes sure the plugin's pinned Node packages are installed. Claude Code installs
+# - Makes sure the plugin's pinned packages are installed. Claude Code installs
 #   them when it copies the plugin into its cache; a plugin loaded in place from a
-#   local checkout gets them here, once, with the same npm ci --ignore-scripts.
+#   local checkout gets them here, once, with bun install --frozen-lockfile --ignore-scripts.
 # - Reads ANTHROPIC_API_KEY from the macOS keychain when it isn't already set,
 #   without printing it. The hunters' spend goes to the account that owns that key.
 # Settings come from the environment or from ~/.ancplua-hunt/config (KEY=VALUE lines):
@@ -29,7 +29,7 @@ fi
 
 if [ ! -d "$PLUGIN_ROOT/node_modules/@anthropic-ai/claude-agent-sdk" ]; then
   echo "ancplua-hunt: installing the pinned Claude Agent SDK (first run only)" >&2
-  (cd "$PLUGIN_ROOT" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error >&2)
+  (cd "$PLUGIN_ROOT" && bun install --frozen-lockfile --ignore-scripts --silent >&2)
 fi
 
 case " $* " in
@@ -52,4 +52,4 @@ case " $* " in
     ;;
 esac
 
-exec node "$SCRIPT_DIR/hunt.mjs" "$@"
+exec bun "$SCRIPT_DIR/hunt.mjs" "$@"

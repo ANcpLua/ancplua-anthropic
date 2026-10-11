@@ -1,6 +1,6 @@
 #!/bin/sh
 # Wrapper for cloud-hunt.mjs.
-# - Makes sure the plugin's pinned Node packages are installed, as hunt.sh does.
+# - Makes sure the plugin's pinned packages are installed, as hunt.sh does.
 # - Reads ANTHROPIC_API_KEY from the macOS keychain when it isn't already set, without printing
 #   it. The hunt's spend goes to the account that owns that key: API credits, not a subscription.
 # Settings come from the environment or from ~/.ancplua-hunt/config (KEY=VALUE lines), shared
@@ -27,8 +27,8 @@ if [ -f "$CONF" ]; then
 fi
 
 if [ ! -d "$PLUGIN_ROOT/node_modules/yaml" ]; then
-  echo "ancplua-hunt: installing the pinned Node packages (first run only)" >&2
-  (cd "$PLUGIN_ROOT" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error >&2)
+  echo "ancplua-hunt: installing the pinned packages (first run only)" >&2
+  (cd "$PLUGIN_ROOT" && bun install --frozen-lockfile --ignore-scripts --silent >&2)
 fi
 
 case " $* " in
@@ -51,4 +51,4 @@ case " $* " in
     ;;
 esac
 
-exec node "$SCRIPT_DIR/cloud-hunt.mjs" "$@"
+exec bun "$SCRIPT_DIR/cloud-hunt.mjs" "$@"

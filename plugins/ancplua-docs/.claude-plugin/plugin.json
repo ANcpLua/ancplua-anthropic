@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ancplua-docs",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Grounds answers about Claude and Claude Code in the current official docs at code.claude.com and claude.com.",
   "author": {
     "name": "ancplua"

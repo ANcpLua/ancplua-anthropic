@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Project Stop hook, wired in .claude/settings.json. It runs scripts/verify.mjs in the git root
 // of the session's cwd, so a worktree checks itself, and only when that root is this marketplace:
 // another repository's script is never run. On a failure it exits 2 with the whole
@@ -59,6 +59,6 @@ try {
   // without state the next stop reports again, the safer failure
 }
 process.stderr.write(
-  `verify.mjs failed in ${root}. Fix every problem below, then run node scripts/verify.mjs until it ends in "verify: all checks passed".\n\n${report}\n`,
+  `verify.mjs failed in ${root}. Fix every problem below, then run bun scripts/verify.mjs until it ends in "verify: all checks passed".\n\n${report}\n`,
 );
 process.exit(2);

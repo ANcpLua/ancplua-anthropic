@@ -1,7 +1,7 @@
 ---
 name: hunt
 description: Runs one to five Claude Opus bug hunters in parallel on a single issue through the Claude Agent SDK, each in its own throwaway clone with a different angle, and returns their root-cause reports with tested patches. Use when a bug resists debugging, when you want independent investigations to compare before choosing a fix, or when the user asks for bug hunters.
-compatibility: Claude Code with Bash, Node.js 22 or later, git, and an Anthropic API key in ANTHROPIC_API_KEY or the macOS keychain. Spends API credits.
+compatibility: Claude Code with Bash, Bun 1.4 or later, git, and an Anthropic API key in ANTHROPIC_API_KEY or the macOS keychain. Spends API credits.
 ---
 
 The hunt runs `${CLAUDE_SKILL_DIR}/scripts/hunt.sh`. Every hunter is a separate Opus session billed to the API key, so

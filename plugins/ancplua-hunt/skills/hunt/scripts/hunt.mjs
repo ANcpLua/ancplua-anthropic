@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // ancplua-hunt: run 1-5 Opus bug hunters in parallel with the Claude Agent SDK.
 //
 // Each hunter works in its own throwaway clone, takes a different angle on the

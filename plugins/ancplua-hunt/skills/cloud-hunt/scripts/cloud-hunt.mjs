@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // cloud-hunt: start parallel Claude Opus bug hunters on a public GitHub repository as a Claude
 // Managed Agent, print one line per meaningful change for the Monitor tool, and download the
 // report and patches.
@@ -9,8 +9,9 @@
 // into the session's outcome, never into the agent. Spend is capped per session (--budget) and
 // across all hunts by the ledger the local hunt shares (<home>/ledger.jsonl, cap
 // $ANCPLUA_HUNT_CAP). <home> is $ANCPLUA_HUNT_HOME, default ~/.ancplua-hunt.
-// Node 22+; the only dependency is the pinned `yaml` package.
+// Bun 1.4+; the only dependency is the pinned `yaml` package.
 
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -34,21 +35,23 @@ const consoleUrl = (id) => `https://platform.claude.com/workspaces/default/sessi
 
 const HELP = `cloud-hunt: parallel Claude Opus bug hunters on a public GitHub repository, in a Managed Agents sandbox
 
-  sh cloud-hunt.sh --repo <owner/name> [--commit <sha> | --pr <n> | --ref <branch>] [options]
+  sh cloud-hunt.sh [--repo <owner/name>] [--commit <sha> | --pr <n> | --ref <branch>] [--issue <file>] [options]
   sh cloud-hunt.sh --watch <session id>   keep watching a running hunt and download its results
+  sh cloud-hunt.sh --stop <session id>    stop a running hunt now; --watch then fetches what it delivered
   sh cloud-hunt.sh --setup                create or update the Agent and Environment, start nothing
 
   --repo <owner/name>      the repository, or its GitHub URL; cloned in the sandbox with plain git
+                           (default: the GitHub origin of the git checkout you run this from)
   --commit/--pr/--ref      what to hunt on (default: the head of the default branch)
   --also <owner/name[@ref]> a related public repository the cause or fix may sit in, at a branch, tag or
                            commit (default: its default branch); cloned beside the first; repeatable
   --issue <file>           hunt the root cause of this issue (or --issue-text "<text>")
   --scope "<text>"         what to sweep without an issue, e.g. "src/Parser" (default: the whole repository)
-  --hunters <3-5>          parallel hunters (default 4)
+  --hunters <3-5>          parallel hunters (default 3 with an issue, 4 for a sweep)
   --effort <high|xhigh>    Opus 5.5 effort for the lead and the hunters (default xhigh)
   --budget <usd>           spend cap for this session (default 40)
   --extra-rubric <file>    criteria appended to the shipped rubric, e.g. a coverage target
-  --iterations <n>         grader rounds before the hunt stops (default 2, max 20)
+  --iterations <n>         grader rounds before the hunt stops (default 1: stop at the first proven result)
   --cap <usd>              total cap across all hunts in the ledger (default $ANCPLUA_HUNT_CAP or 100)
   --minutes <n>            how long to watch before handing back (default 120); the session keeps running
   --poll <seconds>         poll interval (default 30)
@@ -58,7 +61,7 @@ const HELP = `cloud-hunt: parallel Claude Opus bug hunters on a public GitHub re
 `;
 
 function parseArgs(argv) {
-  const a = { also: [], hunters: 4, effort: "xhigh", budget: 40, iterations: 2, cap: DEFAULT_CAP, minutes: 120, poll: 30 };
+  const a = { also: [], hunters: null, effort: "xhigh", budget: 40, iterations: 1, cap: DEFAULT_CAP, minutes: 120, poll: 30 };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const next = () => {
@@ -84,6 +87,7 @@ function parseArgs(argv) {
       case "--poll": a.poll = Number(next()); break;
       case "--out": a.out = next(); break;
       case "--watch": a.watch = next(); break;
+      case "--stop": a.stop = next(); break;
       case "--setup": a.setup = true; break;
       case "--dry-run": a.dryRun = true; break;
       case "--ledger": a.ledgerOnly = true; break;
@@ -169,6 +173,16 @@ function normalizeRepo(value) {
   const m = String(value).trim().match(/^(?:https?:\/\/github\.com\/|git@github\.com:)?([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
   if (!m) throw new Error(`--repo must be owner/name or a github.com URL: ${value}`);
   return m[1];
+}
+
+// With no --repo, hunt the GitHub repository the current checkout pushes to (read-only lookup).
+function repoFromCwd() {
+  try {
+    const url = execFileSync("git", ["config", "--get", "remote.origin.url"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return url ? normalizeRepo(url) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function resolveCommit(repo, { commit, pr, ref }) {
@@ -275,8 +289,9 @@ function describe({ repo, target, also, hunters, issue, scope }) {
   const related = also.length
     ? ` The cause or the fix may also sit in these related repositories; clone each beside it: ${also.map((r) => `https://github.com/${r.repo} at commit ${r.sha} into /workspace/also/${r.name}`).join("; ")}.`
     : "";
-  const patches = also.map((r) => `, /mnt/session/outputs/fix-${r.name}.patch when ${r.repo} changed`).join("");
-  return `${job}${related} Work with ${hunters} parallel hunters as your instructions describe. Deliver /mnt/session/outputs/report.md, /mnt/session/outputs/fix.patch when anything was proven${patches}, and each hunter's report and patches.${issue ? `\n\n<issue>\n${issue.trim()}\n</issue>` : ""}`;
+  const patches = also.map((r) => `, fix-${r.name}.patch when ${r.repo} changed`).join("");
+  const stop = issue ? " Stop at the first verified root cause, as your instructions describe." : "";
+  return `${job}${related} Work with ${hunters} parallel hunters as your instructions describe, and hold every finding to the proof standard.${stop} Deliver under /mnt/session/outputs/: finding-<id>.json the moment each finding is verified, findings.json, the proof files for each finding, verify.sh, fix.patch when anything was proven${patches}, cleanup.patch when unreachable code was deleted, report.md, and each hunter's report and patch.${issue ? `\n\n<issue>\n${issue.trim()}\n</issue>` : ""}`;
 }
 
 function rubric(extraFile) {
@@ -287,7 +302,31 @@ function rubric(extraFile) {
   return `${base}\n\n## Task-specific criteria\n\n${extra}\n`;
 }
 
-async function watch(key, sessionId, a) {
+// Findings arrive as finding-<id>.json while the hunt runs; each new one becomes a FINDING line.
+const seenFindings = new Set();
+function findingLine(f, name) {
+  const loc = f.locations?.[0];
+  const where = loc ? `${loc.file}${loc.line ? `:${loc.line}` : ""}` : "no location";
+  return `FINDING ${f.id ?? name} ${f.severity ?? "unrated"} ${where} :: ${oneLine(f.title ?? f.cause, 160)}${f.run ? ` (proof: ${oneLine(f.run, 120)})` : ""}`;
+}
+async function pollFindings(key, sessionId, out) {
+  const files = (await apiJson(key, "GET", `/files?scope_id=${encodeURIComponent(sessionId)}`)).data || [];
+  for (const f of files) {
+    const name = path.basename(f.filename || "");
+    if (!/^finding-[\w.-]+\.json$/.test(name) || seenFindings.has(name)) continue;
+    seenFindings.add(name);
+    try {
+      const res = await api(key, "GET", `/files/${f.id}/content`);
+      const text = Buffer.from(await res.arrayBuffer()).toString("utf8");
+      fs.writeFileSync(path.join(out, name), text);
+      emit(findingLine(JSON.parse(text), name));
+    } catch (e) {
+      emit(`FINDING ${name} arrived but could not be read: ${oneLine(e.message, 160)}`);
+    }
+  }
+}
+
+async function watch(key, sessionId, a, out) {
   const started = Date.now();
   const deadline = started + a.minutes * 60_000;
   let lastStatus = null;
@@ -296,6 +335,7 @@ async function watch(key, sessionId, a) {
   let firstPoll = true;
   let idleStreak = 0;
   let lastHeartbeat = Date.now();
+  let polls = 0;
 
   while (true) {
     const session = await apiJson(key, "GET", `/sessions/${sessionId}`);
@@ -335,6 +375,13 @@ async function watch(key, sessionId, a) {
       firstPoll = false;
     } catch {
       // Thread detail is progress only; the session poll decides when the hunt is over.
+    }
+    if (polls++ % 2 === 0) {
+      try {
+        await pollFindings(key, sessionId, out);
+      } catch {
+        // Live findings are a preview; download() fetches everything once the hunt is over.
+      }
     }
 
     let reason = null;
@@ -378,7 +425,7 @@ async function download(key, sessionId, out) {
 }
 
 async function finish(key, sessionId, a, out, meta) {
-  const { session, done, reason } = await watch(key, sessionId, a);
+  const { session, done, reason } = await watch(key, sessionId, a, out);
   const cost = cents(session.usage?.list_cost);
   recordCost(sessionId, cost, meta);
   fs.writeFileSync(path.join(out, "session.json"), `${JSON.stringify(session, null, 2)}\n`);
@@ -386,8 +433,21 @@ async function finish(key, sessionId, a, out, meta) {
   const saved = await download(key, sessionId, out);
   const oc = session.outcome_evaluations?.[session.outcome_evaluations.length - 1];
   const report = saved.includes("report.md") ? path.join(out, "report.md") : null;
-  const fixes = saved.filter((n) => /^fix(-.+)?\.patch$/.test(n)).sort().map((n) => path.join(out, n));
-  emit(`DONE ${sessionId}: ${reason}${oc ? `, grader ${oc.result}` : ""}; ${usd(cost)}; ledger ${usd(readLedger().spent)}/${usd(a.cap)}; ${saved.length} files in ${out}${report ? `; read ${report}` : "; no report.md, check the console"}${fixes.length ? `; patch ${fixes.join(", ")}` : ""}`);
+  const patches = saved.filter((n) => /^(fix(-.+)?|cleanup)\.patch$/.test(n)).sort().map((n) => path.join(out, n));
+  let findings = [];
+  try {
+    findings = JSON.parse(fs.readFileSync(path.join(out, "findings.json"), "utf8")).findings || [];
+  } catch { /* no findings.json: the summary falls back to the files */ }
+  for (const f of findings) {
+    const name = `finding-${f.id}.json`;
+    if (!seenFindings.has(name)) { seenFindings.add(name); emit(findingLine(f, name)); }
+  }
+  const top = findings[0]?.locations?.[0];
+  const summary = `${findings.length} verified finding${findings.length === 1 ? "" : "s"}${findings[0] ? `, top ${findings[0].id} at ${top ? `${top.file}${top.line ? `:${top.line}` : ""}` : "no location"}` : ""}`;
+  emit(`DONE ${sessionId}: ${reason}${oc ? `, grader ${oc.result}` : ""}; ${summary}; ${usd(cost)}; ledger ${usd(readLedger().spent)}/${usd(a.cap)}; ${saved.length} files in ${out}${report ? `; read ${report}` : "; no report.md, check the console"}${patches.length ? `; patch ${patches.join(", ")}` : ""}`);
+  if (saved.includes("verify.sh") && patches.length) {
+    emit(`NEXT check the proof yourself: sh ${path.join(out, "verify.sh")} <checkout> prints BUG for each finding; after git apply ${patches.find((p) => p.endsWith("fix.patch")) ?? patches[0]} it prints FIXED`);
+  }
 }
 
 function outDir(a, sessionId) {
@@ -407,6 +467,12 @@ async function main() {
   if (!a.dryRun && !key) throw new Error("ANTHROPIC_API_KEY is not set (run through cloud-hunt.sh, which reads it from the keychain)");
   if (!(a.minutes > 0) || !(a.poll >= 1) || !(a.cap > 0)) throw new Error("--minutes, --poll and --cap must be positive");
 
+  if (a.stop) {
+    await apiJson(key, "POST", `/sessions/${a.stop}/events`, { events: [{ type: "user.interrupt" }] });
+    emit(`STOPPED ${a.stop}: interrupt sent, the hunt spends nothing more. Fetch what it delivered with: sh ${WRAPPER} --watch ${a.stop}`);
+    return;
+  }
+
   if (a.watch) {
     const out = outDir(a, a.watch);
     emit(`CLOUD watching ${a.watch}: ${consoleUrl(a.watch)}`);
@@ -420,7 +486,9 @@ async function main() {
     return;
   }
 
-  if (!a.repo) throw new Error("--repo <owner/name> is required");
+  a.repo ??= repoFromCwd();
+  if (!a.repo) throw new Error("--repo <owner/name> is required outside a git checkout with a GitHub origin");
+  a.hunters ??= a.issue || a.issueText ? 3 : 4;
   if (!Number.isInteger(a.hunters) || a.hunters < 3 || a.hunters > 5) throw new Error("--hunters must be 3, 4 or 5");
   if (!["high", "xhigh"].includes(a.effort)) throw new Error("--effort must be high or xhigh");
   if (!Number.isInteger(a.iterations) || a.iterations < 1 || a.iterations > 20) throw new Error("--iterations must be 1-20");

@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Every check this repository enforces, in one command, runnable from any directory:
 //
-//   node scripts/verify.mjs                 validator, directory checklist, house rules
-//   node scripts/verify.mjs --base <ref>    also require a higher version for each plugin
+//   bun scripts/verify.mjs                  validator, directory checklist, house rules
+//   bun scripts/verify.mjs --base <ref>     also require a higher version for each plugin
 //                                           changed since <ref>; CI passes this
 //
 // The order follows the Authority section of CLAUDE.md, highest first:
@@ -12,7 +12,7 @@
 //   3. the ✓ house rules of CLAUDE.md; none repeats a validator check
 //
 // Gitignored files are invisible to every check: the validator runs on a temporary copy of the
-// tracked and unignored files. Needs Node 18+ and the Claude Code CLI on PATH. Exits 1 on any
+// tracked and unignored files. Needs Bun 1.4+ and the Claude Code CLI on PATH. Exits 1 on any
 // failure; a clean run ends with "verify: all checks passed".
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -123,7 +123,7 @@ function runValidator(targets) {
   const shell = process.platform === "win32";
   const probe = spawnSync("claude", ["--version"], { encoding: "utf8", shell });
   if (probe.error || probe.status !== 0) {
-    fail("claude", "CLI not found on PATH; install Claude Code (npm install -g @anthropic-ai/claude-code)");
+    fail("claude", "CLI not found on PATH; install Claude Code (curl -fsSL https://claude.ai/install.sh | bash)");
     return;
   }
   console.log(`verify: ${probe.stdout.trim()}`);
