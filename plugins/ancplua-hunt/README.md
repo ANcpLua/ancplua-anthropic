@@ -35,6 +35,9 @@ ANCPLUA_HUNT_KEYCHAIN_ACCOUNT=<account name>
 ANCPLUA_HUNT_CAP=100
 ```
 
+Both launchers look for Bun on PATH, then in `$BUN_INSTALL/bin/bun` and `$HOME/.bun/bin/bun`. If it is
+missing, they print the official installation command and exit before installing packages or reading the keychain.
+
 Both skills call the Claude API with that key, never the `claude` CLI, so the spend comes out of the API account's
 credits and not out of a Claude subscription. `cloud-hunt` works on public GitHub repositories only: the sandbox clones
 them without a token.
@@ -57,7 +60,9 @@ overshoot slightly.
     `railway`, the macOS `security` command and subagents are blocked for hunters.
   - `cloud-hunt` reads the current checkout's `origin` URL with `git config` when you don't name a repository, creates
     or updates one Managed Agent and one Environment from the templates in `skills/cloud-hunt/assets/` on first use,
-    then one session per hunt; `--stop` sends that session an interrupt. In the sandbox, the lead clones the repository,
+    then one session per hunt; `--stop` sends that session an interrupt. Stop a local hunt with SIGINT or
+    SIGTERM (Ctrl-C, or signal the process a tool started): it records spend and cleans up clones unless
+    `--keep` is set. A second signal exits immediately. In the sandbox, the lead clones the repository,
     installs the toolchain it pins, and starts its hunters, each in its own git worktree. The sandbox reaches only
     package registries, GitHub and the installer hosts listed in `environment.yaml`.
 - **Sends:** the issue text or scope, the repository content the hunters read and the output of their commands go to

@@ -4,6 +4,7 @@
 //   bun scripts/verify.mjs                  validator, directory checklist, house rules
 //   bun scripts/verify.mjs --base <ref>     also require a higher version for each plugin
 //                                           changed since <ref>; CI passes this
+//                                         unresolved refs use HEAD~1 and explain why
 //
 // The order follows the Authority section of CLAUDE.md, highest first:
 //   1. `claude plugin validate --strict` on the marketplace, each plugin directory and .claude
@@ -317,8 +318,15 @@ function checkVersionBumps(base, plugins) {
   try {
     git("rev-parse", "--verify", `${base}^{commit}`);
   } catch {
-    fail("--base", `"${base}" is not a commit here, so the version check cannot run; fetch it first`);
-    return;
+    const requested = base;
+    base = "HEAD~1";
+    try {
+      git("rev-parse", "--verify", `${base}^{commit}`);
+    } catch {
+      fail("--base", `"${requested}" is not a commit here and HEAD~1 is unavailable; fetch history first`);
+      return;
+    }
+    console.log(`verify: --base "${requested}" does not resolve to a commit; using HEAD~1`);
   }
   for (const name of plugins) {
     if (!git("diff", "--name-only", base, "--", `plugins/${name}`).trim()) continue;
@@ -352,8 +360,8 @@ checkAgents(".claude/agents");
 const baseIndex = process.argv.indexOf("--base");
 if (baseIndex !== -1) {
   const base = process.argv[baseIndex + 1];
-  if (base && !/^0+$/.test(base)) checkVersionBumps(base, plugins);
-  else console.log("verify: no usable --base; skipping the version check");
+  if (base) checkVersionBumps(base, plugins);
+  else fail("--base", "requires a ref");
 }
 
 if (errors.length) {

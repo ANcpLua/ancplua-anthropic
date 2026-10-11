@@ -220,8 +220,13 @@ async function runHunter(h, ctx) {
   const log = fs.createWriteStream(path.join(ctx.out, `${h.id}.log`));
   const write = (s) => log.write(`${new Date().toISOString()} ${s}\n`);
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), ctx.minutes * 60_000);
-  let turns = 0, lastText = "", result = null, initInfo = "", error = null;
+  h.ac = ac;
+  h.state = { ctx, started, log, turns: 0, lastText: "", result: null, initInfo: "", error: null, cost: 0 };
+  const timer = setTimeout(() => {
+    h.outcome = "time_limit";
+    ac.abort();
+  }, ctx.minutes * 60_000);
+  const state = h.state;
   let lastProgress = Date.now();
 
   const env = { ...process.env, CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1", DISABLE_AUTOUPDATER: "1", GIT_TERMINAL_PROMPT: "0" };
@@ -229,7 +234,7 @@ async function runHunter(h, ctx) {
 
   emit(`HUNTER ${h.id} (${h.angle[0]}) started`);
   try {
-    for await (const m of query({
+    const session = query({
       prompt: h.prompt,
       options: {
         model: ctx.model,
@@ -251,15 +256,22 @@ async function runHunter(h, ctx) {
         env,
         abortController: ac,
       },
-    })) {
+    });
+    for await (const m of session) {
+      if (h.record) break;
       if (m.type === "system" && m.subtype === "init") {
-        initInfo = `model=${m.model} apiKeySource=${m.apiKeySource ?? "?"} permissionMode=${m.permissionMode ?? "?"}`;
-        write(`init ${initInfo}`);
+        state.initInfo = `model=${m.model} apiKeySource=${m.apiKeySource ?? "?"} permissionMode=${m.permissionMode ?? "?"}`;
+        write(`init ${state.initInfo}`);
         if (m.apiKeySource && m.apiKeySource === "none") emit(`WARN ${h.id}: no API key source reported; this run may bill a subscription instead of API credits`);
       } else if (m.type === "assistant" && !m.parent_tool_use_id) {
-        turns++;
+        // Read the pinned SDK's own cumulative estimate; do not price tokens locally.
+        // skipBehaviors avoids scanning unrelated local transcripts.
+        const usage = await session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true });
+        if (h.record) break;
+        state.cost = Math.max(state.cost, usage.session.total_cost_usd);
+        state.turns++;
         for (const b of m.message?.content ?? []) {
-          if (b.type === "text" && b.text?.trim()) { lastText = b.text; write(`text ${oneLine(b.text, 2000)}`); }
+          if (b.type === "text" && b.text?.trim()) { state.lastText = b.text; write(`text ${oneLine(b.text, 2000)}`); }
           else if (b.type === "tool_use") {
             const inp = b.input || {};
             const what = inp.command || inp.file_path || inp.pattern || inp.url || inp.query || "";
@@ -269,20 +281,28 @@ async function runHunter(h, ctx) {
         }
         if (Date.now() - lastProgress > ctx.progressEvery * 1000) {
           lastProgress = Date.now();
-          emit(`HUNTER ${h.id} working: ${turns} turns, ${Math.round((Date.now() - started) / 60000)} min`);
+          emit(`HUNTER ${h.id} working: ${state.turns} turns, ${Math.round((Date.now() - started) / 60000)} min`);
         }
       } else if (m.type === "result") {
-        result = m;
+        state.result = m;
+        state.cost = Math.max(state.cost, Number(m.total_cost_usd) || 0);
         write(`result subtype=${m.subtype} cost=${m.total_cost_usd} turns=${m.num_turns}`);
       }
     }
   } catch (e) {
-    error = ac.signal.aborted ? `stopped after ${ctx.minutes} min` : e.message;
-    write(`error ${error}`);
+    state.error = ac.signal.aborted ? h.outcome : e.message;
+    if (!h.record) write(`error ${state.error}`);
   } finally {
     clearTimeout(timer);
   }
 
+  return finish(h, h.outcome);
+}
+
+// Every query outcome, including the bounded interrupt path, is finalized once.
+function finish(h, outcome) {
+  if (h.record) return h.record;
+  const { ctx, started, log, turns, lastText, result, initInfo, error, cost } = h.state;
   const notesPath = path.join(h.dir, NOTES_FILE);
   const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, "utf8") : "";
   if (notes) fs.writeFileSync(path.join(ctx.out, `${h.id}.notes.md`), notes);
@@ -290,18 +310,22 @@ async function runHunter(h, ctx) {
   if (patch) fs.writeFileSync(path.join(ctx.out, `${h.id}.patch`), patch);
 
   const report = result?.subtype === "success" && result.structured_output ? result.structured_output : null;
-  const cost = Number(result?.total_cost_usd) || 0;
   const rec = {
     id: h.id, angle: h.angle[0], sha: h.sha, report, cost_usd: cost, turns: result?.num_turns ?? turns,
-    minutes: Math.round((Date.now() - started) / 6000) / 10, subtype: result?.subtype ?? null,
+    minutes: Math.round((Date.now() - started) / 6000) / 10, subtype: outcome ?? result?.subtype ?? (error ? "error" : null),
     errors: result?.errors ?? (error ? [error] : []), init: initInfo, patch: patch ? `${h.id}.patch` : null, diffstat: stat,
     notes: notes ? `${h.id}.notes.md` : null, last_text: report ? undefined : oneLine(lastText, 1500),
   };
+  h.record = rec;
   fs.writeFileSync(path.join(ctx.out, `${h.id}.json`), JSON.stringify(rec, null, 2));
   fs.appendFileSync(LEDGER, `${JSON.stringify({ ts: new Date().toISOString(), hunt: ctx.huntId, hunter: h.id, angle: h.angle[0], model: ctx.model, effort: ctx.effort, cost_usd: cost, turns: rec.turns, subtype: rec.subtype })}\n`);
   log.end();
 
-  if (report) {
+  if (!ctx.keep) fs.rmSync(path.dirname(h.dir), { recursive: true, force: true });
+
+  if (outcome === "interrupted") {
+    emit(`HUNTER ${h.id} interrupted (${usd(cost)})`);
+  } else if (report) {
     const loc = report.locations?.[0];
     const where = loc ? `${loc.file}${loc.line ? `:${loc.line}` : ""}` : "no location";
     emit(`REPORT ${h.id} ${report.verdict} ${Number(report.confidence).toFixed(2)} ${where} :: ${oneLine(report.root_cause, 160)} (${usd(cost)}, ${rec.turns} turns${patch ? ", patch" : ""})`);
@@ -415,16 +439,39 @@ async function main() {
     return;
   }
 
-  const recs = await Promise.all(hunters.map((h) => runHunter(h, ctx).catch((e) => {
-    emit(`HUNTER ${h.id} crashed: ${oneLine(e.message)}`);
-    return { id: h.id, angle: h.angle[0], report: null, cost_usd: 0, turns: 0, errors: [e.message], subtype: "crash" };
-  })));
-  const agreement = writeReport(ctx, recs);
-  const total = recs.reduce((s, r) => s + r.cost_usd, 0);
-  const reported = recs.filter((r) => r.report).length;
-  const top = agreement[0] ? `, ${agreement[0][1].length} point to ${agreement[0][0]}` : "";
-  if (!a.keep) fs.rmSync(work, { recursive: true, force: true });
-  emit(`DONE ${huntId}: ${reported}/${recs.length} reported${top}; this hunt ${usd(total)}, ledger ${usd(readLedger().spent)}/${usd(a.cap)}; read ${path.join(out, "report.md")}`);
+  let stopping = false;
+  let stopTimer;
+  const stop = () => {
+    if (stopping) process.exit(130);
+    stopping = true;
+    for (const h of hunters) {
+      if (h.record) continue;
+      h.outcome = "interrupted";
+      h.ac.abort();
+    }
+    // A stuck SDK cannot prevent accounting and cleanup indefinitely.
+    stopTimer = setTimeout(() => {
+      for (const h of hunters) finish(h, h.outcome);
+      complete(hunters.map((h) => h.record));
+      process.exit(130);
+    }, 5000);
+  };
+  const complete = (recs) => {
+    const agreement = writeReport(ctx, recs);
+    const total = recs.reduce((s, r) => s + r.cost_usd, 0);
+    const reported = recs.filter((r) => r.report).length;
+    const top = agreement[0] ? `, ${agreement[0][1].length} point to ${agreement[0][0]}` : "";
+    if (!a.keep) fs.rmSync(work, { recursive: true, force: true });
+    emit(`${stopping ? "STOPPED" : "DONE"} ${huntId}: ${reported}/${recs.length} reported${top}; this hunt ${usd(total)}, ledger ${usd(readLedger().spent)}/${usd(a.cap)}; read ${path.join(out, "report.md")}`);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  const recs = await Promise.all(hunters.map((h) => runHunter(h, ctx)));
+  clearTimeout(stopTimer);
+  process.off("SIGINT", stop);
+  process.off("SIGTERM", stop);
+  complete(recs);
+  if (stopping) process.exit(130);
 }
 
 main().catch((e) => {
