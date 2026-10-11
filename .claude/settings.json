@@ -14,8 +14,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-verify.mjs"],
+            "command": "sh",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-verify.sh"],
             "timeout": 120,
             "statusMessage": "verify.mjs"
           }

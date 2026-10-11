@@ -31,7 +31,8 @@ ancplua-anthropic/
 │   └── <plugin>/               everything that ships
 ├── .claude/                    sessions in this repo only, never shipped
 │   ├── settings.json           shared permissions and the Stop hook
-│   ├── hooks/stop-verify.mjs   Stop hook: runs verify.mjs, blocks once per distinct failure
+│   ├── hooks/stop-verify.sh    resolves Bun for the Stop hook
+│   ├── hooks/stop-verify.mjs   runs verify.mjs, blocks once per distinct failure
 │   └── skills/
 │       ├── new-plugin/         /new-plugin <name> scaffolds a plugin
 │       └── verify/             runs scripts/verify.mjs; Claude runs it before commits
@@ -79,7 +80,10 @@ every pull request. If `--base` does not resolve to a commit, verification repor
 accepts an optional `base` through `workflow_dispatch` so the fallback can be exercised on CI.
 
 The project Stop hook in `.claude/settings.json` runs the same script when Claude stops. On a failure it blocks the stop
-once per distinct failure per session with the full report, so Claude fixes it before handing back.
+once per distinct failure per session with the full report, so Claude fixes it before handing back. Its POSIX launcher
+resolves Bun from PATH, then `$BUN_INSTALL/bin/bun`, then `$HOME/.bun/bin/bun`, and passes stdin to
+`stop-verify.mjs`. When Bun is missing, it blocks once per session with the installation command, using the same
+`ancplua-anthropic-stop-hook` directory in the OS temp directory for session memory.
 
 ## Releasing a change
 
