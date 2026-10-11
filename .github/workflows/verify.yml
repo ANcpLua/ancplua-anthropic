@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Version-check base (unresolved refs use HEAD~1)
+        required: false
+        default: HEAD~1
+        type: string
 
 jobs:
   verify:
@@ -17,9 +24,6 @@ jobs:
           bun-version: latest
       - run: curl -fsSL https://claude.ai/install.sh | bash
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      # After a force push the event's before commit is gone, so the parent of the new head is the base then.
-      - run: |
-          git cat-file -e "$BASE^{commit}" 2>/dev/null || BASE=$(git rev-parse HEAD~1)
-          bun scripts/verify.mjs --base "$BASE"
+      - run: bun scripts/verify.mjs --base "$BASE"
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.inputs.base || github.event.pull_request.base.sha || github.event.before }}

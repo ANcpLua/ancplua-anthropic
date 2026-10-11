@@ -74,7 +74,9 @@ plugin and `.claude`; then the rows of the
 directory's [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist.md) on README, license,
 plugin name, file names, links and submodules, `SKILL.md` spelling and `.gitattributes`; then the ✓ house rules.
 Gitignored files count for none of these checks. CI runs the same command with `--base` on every push to `main` and
-every pull request.
+every pull request. If `--base` does not resolve to a commit, verification reports the reason and uses
+`HEAD~1`; it fails when that parent is unavailable. A missing `--base` value is an error. The workflow also
+accepts an optional `base` through `workflow_dispatch` so the fallback can be exercised on CI.
 
 The project Stop hook in `.claude/settings.json` runs the same script when Claude stops. On a failure it blocks the stop
 once per distinct failure per session with the full report, so Claude fixes it before handing back.
