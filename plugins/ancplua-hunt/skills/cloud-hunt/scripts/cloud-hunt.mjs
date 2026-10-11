@@ -293,6 +293,7 @@ async function watch(key, sessionId, a) {
   let lastStatus = null;
   let lastOutcome = null;
   const hunters = new Map();
+  let firstPoll = true;
   let idleStreak = 0;
   let lastHeartbeat = Date.now();
 
@@ -320,12 +321,18 @@ async function watch(key, sessionId, a) {
         if (!h) {
           h = { n: hunters.size + 1, status: t.status };
           hunters.set(t.id, h);
-          emit(`THREAD hunter ${h.n} started`);
+          // Threads already present when watching starts (--watch) are summed up below, not "started".
+          if (!firstPoll) emit(`THREAD hunter ${h.n} started`);
         } else if (h.status !== t.status && (t.status === "idle" || t.status === "terminated")) {
           emit(`THREAD hunter ${h.n} ${t.status} (${usd(cents(t.usage?.list_cost))})`);
         }
         h.status = t.status;
       }
+      if (firstPoll && hunters.size) {
+        const running = [...hunters.values()].filter((h) => h.status === "running").length;
+        emit(`THREAD ${hunters.size} hunters so far: ${running} running, ${hunters.size - running} idle`);
+      }
+      firstPoll = false;
     } catch {
       // Thread detail is progress only; the session poll decides when the hunt is over.
     }
