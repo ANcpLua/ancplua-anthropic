@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ancplua-hunt",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Runs Claude Opus bug hunters in parallel, locally on one issue or in Anthropic's cloud on a repository, and returns findings proven by failing tests and reproducers, with clean patches for you to ship.",
   "author": {
     "name": "ancplua"

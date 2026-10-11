@@ -31,3 +31,7 @@ the total cap.
 
 `sh "${CLAUDE_SKILL_DIR}/scripts/hunt.sh" --help` lists every option, `--ledger` prints the spend so far, and
 `--dry-run` prepares clones and prompts without calling a model.
+
+Stop a local hunt with SIGINT or SIGTERM: press Ctrl-C, or send the signal to the process a tool started.
+It records the running spend, emits `HUNTER hN interrupted` and `STOPPED`, and removes the clones unless
+`--keep` is set. Allow up to five seconds to settle; a second signal exits immediately.
