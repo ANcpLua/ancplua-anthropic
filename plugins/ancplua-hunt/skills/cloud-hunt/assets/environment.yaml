@@ -1,0 +1,26 @@
+# Ubuntu 24.04 sandbox for any public repository; the lead installs what the repository pins.
+# allow_package_managers opens apt, npm, PyPI, crates.io, the Go proxy, Maven, RubyGems,
+# Packagist, Docker registries, nodejs.org and GitHub (clone and release downloads). The hosts
+# below add the installers that list lacks. Nothing else is reachable, production included.
+name: ancplua-hunt
+config:
+  type: cloud
+  packages:
+    apt:
+      - libicu74
+  networking:
+    type: limited
+    allow_package_managers: true
+    allow_mcp_servers: false
+    allowed_hosts:
+      - dot.net
+      - builds.dotnet.microsoft.com
+      - ci.dot.net
+      - dotnet.microsoft.com
+      - aka.ms
+      - api.nuget.org
+      - bun.sh
+      - mise.run
+      - mise.jdx.dev
+      - go.dev
+      - dl.google.com

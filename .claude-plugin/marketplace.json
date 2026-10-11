@@ -9,6 +9,10 @@
     {
       "name": "ancplua-docs",
       "source": "./plugins/ancplua-docs"
+    },
+    {
+      "name": "ancplua-hunt",
+      "source": "./plugins/ancplua-hunt"
     }
   ]
 }

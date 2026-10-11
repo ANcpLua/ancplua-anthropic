@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "ancplua-hunt",
+  "version": "0.2.0",
+  "description": "Runs Claude Opus bug hunters in parallel, locally on one issue or in Anthropic's cloud on a whole repository, and returns proven fixes with tests for you to judge.",
+  "author": {
+    "name": "ancplua"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "debugging",
+    "agent-sdk",
+    "managed-agents",
+    "root-cause"
+  ]
+}
