@@ -17,6 +17,9 @@ jobs:
           bun-version: latest
       - run: curl -fsSL https://claude.ai/install.sh | bash
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: bun scripts/verify.mjs --base "$BASE"
+      # After a force push the event's before commit is gone, so the parent of the new head is the base then.
+      - run: |
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || BASE=$(git rev-parse HEAD~1)
+          bun scripts/verify.mjs --base "$BASE"
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
