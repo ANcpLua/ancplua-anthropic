@@ -13,6 +13,21 @@
     {
       "name": "ancplua-hunt",
       "source": "./plugins/ancplua-hunt"
+    },
+    {
+      "name": "ancplua-lean-proof",
+      "source": {
+        "source": "github",
+        "repo": "ANcpLua/ancplua-lean-proof"
+      }
+    },
+    {
+      "name": "mcp-builder-v2",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/ANcpLua/mcp-builder-v2.git",
+        "path": "plugins/mcp-builder-v2"
+      }
     }
   ]
 }
