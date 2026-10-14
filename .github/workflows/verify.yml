@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "23 5 * * 1"
   workflow_dispatch:
     inputs:
       base:
@@ -24,6 +26,6 @@ jobs:
           bun-version: latest
       - run: curl -fsSL https://claude.ai/install.sh | bash
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: bun scripts/verify.mjs --base "$BASE"
+      - run: bun scripts/verify.mjs --base "$BASE" --remote
         env:
-          BASE: ${{ github.event.inputs.base || github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.inputs.base || github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}

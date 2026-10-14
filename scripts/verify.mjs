@@ -4,7 +4,10 @@
 //   bun scripts/verify.mjs                  validator, directory checklist, house rules
 //   bun scripts/verify.mjs --base <ref>     also require a higher version for each plugin
 //                                           changed since <ref>; CI passes this
-//                                         unresolved refs use HEAD~1 and explain why
+//                                           unresolved refs use HEAD~1 and explain why
+//   bun scripts/verify.mjs --remote         last, install every listed plugin into a throwaway
+//                                           CLAUDE_CONFIG_DIR and read `claude plugin details`;
+//                                           needs the network, CI passes this
 //
 // The order follows the Authority section of CLAUDE.md, highest first:
 //   1. `claude plugin validate --strict` on the marketplace, each plugin directory and .claude
@@ -357,6 +360,56 @@ function checkVersionBumps(base, plugins) {
   }
 }
 
+// --- Remote: every listed plugin installs and loads from a clean configuration ------------------
+
+// Judged by exit codes and `claude plugin details`, never by install wording. A source that names
+// a folder which exists but holds no plugin installs with exit 0 and loads with no version and no
+// components, so details are what catch it.
+function checkRemote() {
+  const shell = process.platform === "win32";
+  const probe = spawnSync("claude", ["--version"], { encoding: "utf8", shell });
+  if (probe.error || probe.status !== 0) {
+    fail("--remote", "claude CLI not found on PATH; install Claude Code (curl -fsSL https://claude.ai/install.sh | bash)");
+    return;
+  }
+  const list = readJson(".claude-plugin/marketplace.json")?.plugins ?? [];
+  const config = mkdtempSync(join(tmpdir(), "ancplua-remote-"));
+  const copy = visibleCopy();
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: config };
+  const claude = (...args) => spawnSync("claude", args, { cwd: copy, encoding: "utf8", env, shell, timeout: 300_000 });
+  const why = (run) => run.error?.message ?? `exit ${run.status}: ${`${run.stdout ?? ""}${run.stderr ?? ""}`.trim().split("\n").slice(-3).join(" ")}`;
+  console.log(`\nverify: --remote installs ${list.length} plugin(s) into a throwaway CLAUDE_CONFIG_DIR`);
+  try {
+    const add = claude("plugin", "marketplace", "add", copy);
+    if (add.status !== 0) return fail("--remote", `claude plugin marketplace add failed (${why(add)})`);
+    for (const { name } of list) {
+      const where = `--remote ${name}`;
+      const id = `${name}@${MARKETPLACE_NAME}`;
+      const install = claude("plugin", "install", id);
+      if (install.status !== 0) {
+        fail(where, `claude plugin install failed (${why(install)})`);
+        continue;
+      }
+      const details = claude("plugin", "details", id);
+      if (details.status !== 0) {
+        fail(where, `claude plugin details failed (${why(details)})`);
+        continue;
+      }
+      console.log(`\n${details.stdout.trim().split("\n").slice(0, 10).join("\n")}`);
+      const head = details.stdout.trim().split("\n")[0];
+      const loaded = head.match(/\(([^()]+)\)/)?.[1] ?? head.split(/\s+/)[0];
+      const version = head.split(/\s+/).find((word) => SEMVER.test(word));
+      const count = (kind) => Number(details.stdout.match(new RegExp(`^\\s*${kind} \\((\\d+)\\)`, "m"))?.[1] ?? 0);
+      if (loaded !== name) fail(where, `the source loads plugin "${loaded}", not "${name}"`);
+      if (!version) fail(where, `details show no semver version ("${head}"); does the source point at the plugin's folder?`);
+      if (count("Skills") + count("Agents") === 0) fail(where, "details show no skill or agent; does the source point at the plugin's folder?");
+    }
+  } finally {
+    rmSync(config, { recursive: true, force: true });
+    rmSync(copy, { recursive: true, force: true });
+  }
+}
+
 // --- Run ----------------------------------------------------------------------------------------
 
 const plugins = subdirs("plugins");
@@ -377,6 +430,8 @@ if (baseIndex !== -1) {
   if (base) checkVersionBumps(base, plugins);
   else fail("--base", "requires a ref");
 }
+
+if (process.argv.includes("--remote")) checkRemote();
 
 if (errors.length) {
   console.error(`\nverify: ${errors.length} problem(s)`);
