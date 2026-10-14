@@ -39,7 +39,6 @@ process.chdir(ROOT);
 
 const CHECKLIST = "https://claude.com/docs/plugins/pre-submission-checklist.md";
 const MARKETPLACE_NAME = "ancplua-anthropic";
-const PLUGIN_PREFIX = "ancplua-";
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const NAME_MAX = 64;
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -281,7 +280,6 @@ function checkMarketplace() {
 
 function checkPlugin(name) {
   const root = `plugins/${name}`;
-  if (!name.startsWith(PLUGIN_PREFIX)) fail(root, `plugin name must start with "${PLUGIN_PREFIX}"`);
 
   const manifestDir = `${root}/.claude-plugin`;
   const extra = entries(manifestDir).map((e) => e.name).filter((n) => n !== "plugin.json");
