@@ -43,6 +43,8 @@ const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const NAME_MAX = 64;
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const ENTRY_KEYS = new Set(["name", "source", "category", "tags", "relevance", "dependencies"]);
+const GITHUB_REPO = /^[\w.-]+\/[\w.-]+$/;
+const HTTPS_URL = /^https:\/\/[^\s/]+\/\S+$/;
 const RESERVED_WHOLE_NAMES = new Set(["claude", "anthropic", "official", "plugin", "mcp", "test"]);
 const SYSTEM_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX"]);
 const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
@@ -267,15 +269,29 @@ function checkMarketplace() {
 
   for (const entry of list) {
     const where = `${path} plugins[${entry.name}]`;
-    if (entry.source !== `./plugins/${entry.name}`) fail(where, `source must be "./plugins/${entry.name}"`);
+    const problem = sourceProblem(entry);
+    if (problem) fail(`${where} source`, problem);
     for (const key of Object.keys(entry)) {
-      if (!ENTRY_KEYS.has(key)) fail(where, `"${key}" belongs in plugins/${entry.name}/.claude-plugin/plugin.json, not in the entry`);
+      if (!ENTRY_KEYS.has(key)) fail(where, `"${key}" belongs in the plugin's .claude-plugin/plugin.json, not in the entry`);
     }
   }
 
+  const local = list.filter((entry) => typeof entry.source === "string").map((entry) => entry.name);
   const onDisk = subdirs("plugins");
-  for (const dir of onDisk) if (!names.includes(dir)) fail(`plugins/${dir}`, "directory has no marketplace entry");
-  for (const name of names) if (!onDisk.includes(name)) fail(`${path} plugins[${name}]`, "entry has no plugins/ directory");
+  for (const dir of onDisk) if (!local.includes(dir)) fail(`plugins/${dir}`, `directory has no "./plugins/${dir}" marketplace entry`);
+  for (const name of local) if (!onDisk.includes(name)) fail(`${path} plugins[${name}]`, "entry has no plugins/ directory");
+}
+
+// The three source shapes of CLAUDE.md; undefined when the entry's source is one of them.
+function sourceProblem({ name, source }) {
+  if (typeof source === "string") return source === `./plugins/${name}` ? undefined : `a path source must be "./plugins/${name}"`;
+  const keys = source && typeof source === "object" ? Object.keys(source).sort().join(",") : "";
+  if ("ref" in Object(source) || "sha" in Object(source)) return "no ref or sha: the plugin's own repository releases it";
+  if (source?.source === "github" && keys === "repo,source" && GITHUB_REPO.test(source.repo)) return undefined;
+  if (source?.source === "git-subdir" && keys === "path,source,url" && HTTPS_URL.test(source.url)
+    && typeof source.path === "string" && /^[\w.-]+(\/[\w.-]+)*$/.test(source.path)) return undefined;
+  return `must be "./plugins/${name}", { "source": "github", "repo": "<owner>/<repo>" } or `
+    + `{ "source": "git-subdir", "url": "https://<host>/<owner>/<repo>.git", "path": "<folder>" }`;
 }
 
 function checkPlugin(name) {

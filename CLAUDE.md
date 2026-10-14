@@ -3,9 +3,11 @@
 ## Purpose
 
 This repository (GitHub: ANcpLua/ancplua-anthropic) is the `ancplua-anthropic` plugin marketplace: the single root for
-everything ANcpLua builds for Claude. Everything here ships as a plugin under `plugins/<name>/`, listed in
-`.claude-plugin/marketplace.json` and meant for Anthropic's directory. `.claude/` configures sessions in this repository
-only and is never part of a plugin.
+everything ANcpLua builds for Claude. Every plugin is listed in `.claude-plugin/marketplace.json` and meant for
+Anthropic's directory. A plugin built here ships under `plugins/<name>/`. A plugin already published from its own
+repository stays there, because the directory ties a listing to its repository and folder for good
+(https://claude.com/docs/plugins/submit.md). `.claude/` configures sessions in this repository only and is never part
+of a plugin.
 
 https://claude.com/docs/plugins/platform-support.md alone defines which surfaces exist and what each loads. This file
 never lists surfaces.
@@ -33,13 +35,22 @@ Names
 
 Marketplace
 
-- An entry is exactly `{ "name": "<name>", "source": "./plugins/<name>" }`, plus optional `category`, `tags`,
-  `relevance` and `dependencies`. Display fields live only in
+- An entry is exactly `{ "name": "<name>", "source": <source> }`, plus optional `category`, `tags`, `relevance` and
+  `dependencies`. Display fields live only in
   `plugin.json`; https://code.claude.com/docs/en/plugins/marketplace-reference.md#entry-and-plugin-json says how an
   entry combines with it. ✓
-- Entries are sorted by name. Every `plugins/` directory has an entry and every entry has a directory. ✓
+- `<source>` is one of three shapes. ✓
+  - `"./plugins/<name>"` for a plugin in this repository.
+  - `{ "source": "github", "repo": "<owner>/<repo>" }` for a plugin at the root of another repository.
+  - `{ "source": "git-subdir", "url": "https://<host>/<owner>/<repo>.git", "path": "<folder>" }` for a plugin in a
+    folder of another repository; the `owner/repo` shorthand clones over SSH, which fails without a host key.
+  - Never a `ref` or `sha`: the plugin's own repository releases it.
+- Entries are sorted by name. Every `plugins/` directory has a `./plugins/<name>` entry and every such entry has a
+  directory. ✓
 
 Plugins
+
+These rules cover `plugins/`. A plugin in another repository answers to the validator and the directory.
 
 - `.claude-plugin/` holds only `plugin.json`. ✓
 - `version` is semver. Every change under a plugin raises it ✓ (`--base`, which CI passes).
