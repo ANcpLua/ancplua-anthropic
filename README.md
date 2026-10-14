@@ -1,9 +1,9 @@
 # ancplua-anthropic
 
 The root of everything ANcpLua builds for Claude. The repository is
-a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugins/create-marketplace.md): every plugin lives in
-`plugins/`, one command makes all of them installable, and each is meant
-for [Anthropic's directory](https://claude.com/docs/directory/publish.md).
+a [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugins/create-marketplace.md): plugins built here live
+in `plugins/`, plugins already published from their own repository are listed from there, one command makes all of them
+installable, and each is meant for [Anthropic's directory](https://claude.com/docs/directory/publish.md).
 
 ## Install
 
@@ -20,15 +20,17 @@ it.
 |:---------------------------------------|:----------------------------------------------------------------------------------------|
 | [`ancplua-docs`](plugins/ancplua-docs) | Grounds answers about Claude and Claude Code in the current official docs               |
 | [`ancplua-hunt`](plugins/ancplua-hunt) | Runs parallel Opus bug hunters, locally on one issue or in Anthropic's cloud on a whole repository, and returns proven fixes |
+| [`ancplua-lean-proof`](https://github.com/ANcpLua/ancplua-lean-proof) | Proves C#/.NET state machines correct with Lean 4 and turns every counterexample into a reproduced, fixed bug |
+| [`mcp-builder-v2`](https://github.com/ANcpLua/mcp-builder-v2/tree/main/plugins/mcp-builder-v2) | Builds, migrates and checks MCP servers on SDK v2 and spec 2026-07-28, in TypeScript and Python |
 
 ## Layout
 
 ```text
 ancplua-anthropic/
 ├── .claude-plugin/
-│   └── marketplace.json        the catalog: one entry per plugin
+│   └── marketplace.json        the catalog: one entry per plugin, here or in its own repository
 ├── plugins/
-│   └── <plugin>/               everything that ships
+│   └── <plugin>/               every plugin built here
 ├── .claude/                    sessions in this repo only, never shipped
 │   ├── settings.json           shared permissions and the Stop hook
 │   ├── hooks/stop-verify.sh    resolves Bun for the Stop hook
