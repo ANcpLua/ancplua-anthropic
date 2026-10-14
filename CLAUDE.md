@@ -29,7 +29,8 @@ Only our own choices; a platform rule is never restated here, the validator and 
 
 Names
 
-- A plugin's directory, its `plugin.json` `name` and its marketplace entry `name` are the same string. ✓
+- A plugin's marketplace entry `name` and its `plugin.json` `name` are the same string, and so is its directory in
+  `plugins/`. ✓ (`--remote` for a plugin in another repository)
 - The marketplace is named `ancplua-anthropic`, the repository name. ✓
 - Skill names follow the `name` field of https://agentskills.io/specification, and agent names use the same pattern. ✓
 
@@ -47,6 +48,8 @@ Marketplace
   - Never a `ref` or `sha`: the plugin's own repository releases it.
 - Entries are sorted by name. Every `plugins/` directory has a `./plugins/<name>` entry and every such entry has a
   directory. ✓
+- Every entry installs into a clean configuration, and `claude plugin details` shows a semver version and at least one
+  skill or agent ✓ (`--remote`, which CI passes on every push, pull request and week).
 
 Plugins
 

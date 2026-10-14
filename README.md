@@ -70,14 +70,20 @@ Start a new plugin from a Claude Code session in this repo with `/new-plugin <na
 ```bash
 bun scripts/verify.mjs                  # from any directory
 bun scripts/verify.mjs --base main      # also require version bumps for changed plugins
+bun scripts/verify.mjs --remote         # last, install every listed plugin into a throwaway config
 ```
 
 In the order of authority set in [`CLAUDE.md`](CLAUDE.md): `claude plugin validate --strict` on the marketplace, every
 plugin and `.claude`; then the rows of the
 directory's [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist.md) on README, license,
 plugin name, file names, links and submodules, `SKILL.md` spelling and `.gitattributes`; then the ✓ house rules.
-Gitignored files count for none of these checks. CI runs the same command with `--base` on every push to `main` and
-every pull request. If `--base` does not resolve to a commit, verification reports the reason and uses
+Gitignored files count for none of these checks. `--remote` runs last: it adds this checkout as the marketplace in a
+throwaway `CLAUDE_CONFIG_DIR`, installs every listed plugin, including those in other repositories, and fails unless
+each install exits 0 and `claude plugin details` shows the entry's name, a semver version and at least one skill or
+agent. A source that points at an existing folder without the plugin installs cleanly, so the details are what catch
+it. `--remote` fails when the claude CLI or the network is missing. CI runs the same command with `--base` and
+`--remote` on every push to `main`, every pull request and every Monday, so a Claude Code update that moves the
+platform shows up without a push. A scheduled run has no event to take a base from and uses `HEAD~1`. If `--base` does not resolve to a commit, verification reports the reason and uses
 `HEAD~1`; it fails when that parent is unavailable. A missing `--base` value is an error. The workflow also
 accepts an optional `base` through `workflow_dispatch` so the fallback can be exercised on CI.
 
