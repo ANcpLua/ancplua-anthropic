@@ -27,8 +27,6 @@ Only our own choices; a platform rule is never restated here, the validator and 
 
 Names
 
-- Every plugin name starts with `ancplua-`, our project name; the directory's naming rows are
-  in https://claude.com/docs/plugins/pre-submission-checklist.md. ✓
 - A plugin's directory, its `plugin.json` `name` and its marketplace entry `name` are the same string. ✓
 - The marketplace is named `ancplua-anthropic`, the repository name. ✓
 - Skill names follow the `name` field of https://agentskills.io/specification, and agent names use the same pattern. ✓

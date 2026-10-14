@@ -6,8 +6,9 @@ argument-hint: <plugin-name>
 
 Plugin name requested: `$ARGUMENTS`
 
-1. Read the house rules in `CLAUDE.md`. The name starts with `ancplua-`, is lowercase kebab-case, and is not yet a
-   directory in `plugins/`. If the name is missing, invalid, or taken, propose a valid one and wait for confirmation.
+1. Read the house rules in `CLAUDE.md`. The name is lowercase kebab-case, built around a distinctive project name as
+   the directory's [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist.md) asks, and is
+   not yet a directory in `plugins/` or a name in `.claude-plugin/marketplace.json`. If the name is missing, invalid, or taken, propose a valid one and wait for confirmation.
 2. Get the plugin's purpose as one sentence from the conversation, or ask for it. This sentence is the `description`.
 3. Write `plugins/<name>/.claude-plugin/plugin.json`:
    ```json
