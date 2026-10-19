@@ -11,6 +11,13 @@
       "source": "./plugins/ancplua-docs"
     },
     {
+      "name": "ancplua-dotnet",
+      "source": {
+        "source": "github",
+        "repo": "ANcpLua/ancplua-dotnet"
+      }
+    },
+    {
       "name": "ancplua-hunt",
       "source": "./plugins/ancplua-hunt"
     },
