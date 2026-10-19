@@ -13,8 +13,8 @@
     {
       "name": "ancplua-dotnet",
       "source": {
-        "source": "github",
-        "repo": "ANcpLua/ancplua-dotnet"
+        "source": "url",
+        "url": "https://github.com/ANcpLua/ancplua-dotnet.git"
       }
     },
     {
@@ -24,8 +24,8 @@
     {
       "name": "ancplua-lean-proof",
       "source": {
-        "source": "github",
-        "repo": "ANcpLua/ancplua-lean-proof"
+        "source": "url",
+        "url": "https://github.com/ANcpLua/ancplua-lean-proof.git"
       }
     },
     {
