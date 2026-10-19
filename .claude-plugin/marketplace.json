@@ -35,6 +35,14 @@
         "url": "https://github.com/ANcpLua/mcp-builder-v2.git",
         "path": "plugins/mcp-builder-v2"
       }
+    },
+    {
+      "name": "qyl",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/ANcpLua/qyl.git",
+        "path": "plugins/qyl"
+      }
     }
   ]
 }
