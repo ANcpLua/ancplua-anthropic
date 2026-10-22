@@ -56,12 +56,14 @@ const HELP = `cloud-hunt: a Claude Opus bug hunter on a public GitHub repository
   --minutes <n>            how long to watch before handing back (default 120); the session keeps running
   --poll <seconds>         poll interval (default 30)
   --out <dir>              where results go (default ~/.ancplua-hunt/cloud/<session id>)
+  --fix                    run the fixer instead of the hunter: --issue holds the findings to implement; it
+                           delivers fix.patch, changes.json, verify.sh and report.md (agent "qyl fixer")
   --dry-run                print the session request, call nothing but GitHub
   --ledger                 print spend so far and exit
 `;
 
 function parseArgs(argv) {
-  const a = { also: [], hunters: null, effort: "high", budget: 30, iterations: 1, cap: DEFAULT_CAP, minutes: 120, poll: 30 };
+  const a = { also: [], hunters: null, effort: "high", budget: 30, iterations: 1, cap: DEFAULT_CAP, minutes: 120, poll: 30, fix: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const next = () => {
@@ -90,6 +92,7 @@ function parseArgs(argv) {
       case "--stop": a.stop = next(); break;
       case "--setup": a.setup = true; break;
       case "--dry-run": a.dryRun = true; break;
+      case "--fix": a.fix = true; break;
       case "--ledger": a.ledgerOnly = true; break;
       case "-h": case "--help": a.help = true; break;
       default: throw new Error(`unknown argument: ${k}`);
@@ -220,9 +223,9 @@ async function resolveAlso(spec, primary) {
   return { repo, name: repo.split("/")[1], sha: target.sha };
 }
 
-function loadTemplates() {
+function loadTemplates(fix = false) {
   const hash = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
-  const agentText = fs.readFileSync(path.join(ASSETS, "agent.md"), "utf8");
+  const agentText = fs.readFileSync(path.join(ASSETS, fix ? "fixer.md" : "agent.md"), "utf8");
   const m = agentText.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   if (!m) throw new Error("assets/agent.md needs YAML frontmatter");
   const envText = fs.readFileSync(path.join(ASSETS, "environment.yaml"), "utf8");
@@ -234,16 +237,26 @@ function loadTemplates() {
   };
 }
 
+// Each mode keeps its own agent record: `agent` for the hunter, `fixer` for the fixer.
+let agentKey = "agent";
 function readState() {
   try {
-    return JSON.parse(fs.readFileSync(STATE, "utf8"));
+    const raw = JSON.parse(fs.readFileSync(STATE, "utf8"));
+    return agentKey === "agent" ? raw : { ...raw, agent: raw[agentKey], _raw: raw };
   } catch {
     return {};
   }
 }
 function writeState(state) {
   fs.mkdirSync(CLOUD_HOME, { recursive: true });
-  fs.writeFileSync(STATE, `${JSON.stringify(state, null, 2)}\n`);
+  const { _raw, ...rest } = state;
+  let out = rest;
+  if (agentKey !== "agent") {
+    const base = _raw ?? (() => { try { return JSON.parse(fs.readFileSync(STATE, "utf8")); } catch { return {}; } })();
+    const { agent, ...others } = rest;
+    out = { ...base, ...others, [agentKey]: agent ?? base[agentKey] };
+  }
+  fs.writeFileSync(STATE, `${JSON.stringify(out, null, 2)}\n`);
 }
 
 // Creates the Agent and the Environment from the templates on first use (adopting same-named
@@ -281,8 +294,11 @@ async function ensureResources(key, t) {
   return { agent, environment: env };
 }
 
-function describe({ repo, target, also, hunters, issue, scope }) {
+function describe({ repo, target, also, hunters, issue, scope, fix }) {
   const where = `https://github.com/${repo} at commit ${target.sha}${target.pr ? ` (the head of pull request #${target.pr})` : ""}`;
+  if (fix) {
+    return `Implement the findings listed below in ${where}${scope ? ` (scope: ${scope})` : ""}, in their order, as your instructions describe: test first where behavior changes, the smallest clean change, the repository's gate green. Deliver under /mnt/session/outputs/ exactly the files your instructions list: fix.patch, changes.json, verify.sh and report.md.\n\n<findings>\n${(issue ?? "").trim()}\n</findings>`;
+  }
   const job = issue
     ? `Find and prove the root cause of the issue below, and any other bug you prove on the way, in ${where}${scope ? `; scope: ${scope}` : ""}.`
     : `Hunt the hardest bugs and the code-quality findings your instructions describe in ${scope || "the whole repository"} of ${where}.`;
@@ -294,8 +310,8 @@ function describe({ repo, target, also, hunters, issue, scope }) {
   return `${job}${related} ${team} as your instructions describe, and hold every bug to the proof standard.${stop} Deliver under /mnt/session/outputs/ exactly the files your instructions list: finding-<id>.json the moment each finding is verified, findings.json, the proof files and test patch of each bug, verify.sh and report.md.${issue ? `\n\n<issue>\n${issue.trim()}\n</issue>` : ""}`;
 }
 
-function rubric(extraFile) {
-  const base = fs.readFileSync(path.join(ASSETS, "rubric.md"), "utf8").trim();
+function rubric(extraFile, fix = false) {
+  const base = fs.readFileSync(path.join(ASSETS, fix ? "fixer-rubric.md" : "rubric.md"), "utf8").trim();
   if (!extraFile) return `${base}\n`;
   const extra = fs.readFileSync(expandHome(extraFile), "utf8").trim();
   if (!extra) throw new Error("--extra-rubric is empty");
@@ -479,7 +495,9 @@ async function main() {
     return finish(key, a.watch, a, out, {});
   }
 
-  const templates = loadTemplates();
+  if (a.fix) agentKey = "fixer";
+  const templates = loadTemplates(a.fix);
+  if (a.fix && !a.issue && !a.issueText && !a.watch && !a.stop && !a.setup) throw new Error("--fix needs --issue <file> with the findings to implement");
   if (a.setup) {
     const ids = await ensureResources(key, templates);
     emit(`SETUP done: agent ${ids.agent.id} version ${ids.agent.version}, environment ${ids.environment.id} (${STATE})`);
@@ -524,8 +542,8 @@ async function main() {
     budget: { type: "limit", max_list_cost: { amount: String(Math.round(a.budget * 100)), currency: "USD" } },
     initial_events: [{
       type: "user.define_outcome",
-      description: describe({ repo, target, also, hunters: a.hunters, issue, scope: a.scope }),
-      rubric: { type: "text", content: rubric(a.extraRubric) },
+      description: describe({ repo, target, also, hunters: a.hunters, issue, scope: a.scope, fix: a.fix }),
+      rubric: { type: "text", content: rubric(a.extraRubric, a.fix) },
       max_iterations: a.iterations,
     }],
   };
