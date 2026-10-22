@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ancplua-hunt",
-  "version": "0.4.1",
-  "description": "Runs Claude Opus bug hunters in parallel, locally on one issue or in Anthropic's cloud on a repository, and returns findings proven by failing tests and reproducers, with clean patches for you to ship.",
+  "version": "0.5.0",
+  "description": "Runs Claude Opus bug hunters, locally on one issue or in Anthropic's cloud on a repository, and returns findings proven by failing tests and reproducers, plus C# code-quality findings, for you to fix and ship.",
   "author": {
     "name": "ancplua"
   },

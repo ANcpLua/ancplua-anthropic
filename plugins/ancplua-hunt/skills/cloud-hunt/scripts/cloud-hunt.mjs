@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-// cloud-hunt: start parallel Claude Opus bug hunters on a public GitHub repository as a Claude
-// Managed Agent, print one line per meaningful change for the Monitor tool, and download the
-// report and patches.
+// cloud-hunt: start a Claude Opus bug hunter (alone by default) on a public GitHub repository as
+// a Claude Managed Agent, print one line per meaningful change for the Monitor tool, and download
+// the findings, proofs, test patches and report.
 //
 // The Agent and the Environment come from this skill's assets/ templates. They are created (or
 // adopted by name) on first use and updated when a template changes; their ids live in
@@ -31,9 +31,9 @@ const CLOUD_HOME = path.join(HUNT_HOME, "cloud");
 const STATE = path.join(CLOUD_HOME, "state.json");
 const DEFAULT_CAP = Number(process.env.ANCPLUA_HUNT_CAP) > 0 ? Number(process.env.ANCPLUA_HUNT_CAP) : 100;
 const TERMINAL_OUTCOMES = new Set(["satisfied", "max_iterations_reached", "failed", "interrupted"]);
-const consoleUrl = (id) => `https://platform.claude.com/workspaces/default/sessions/${id}`;
+const consoleUrl = (id) => `https://platform.claude.com/workspaces/${process.env.ANCPLUA_HUNT_WORKSPACE || "default"}/sessions/${id}`;
 
-const HELP = `cloud-hunt: parallel Claude Opus bug hunters on a public GitHub repository, in a Managed Agents sandbox
+const HELP = `cloud-hunt: a Claude Opus bug hunter on a public GitHub repository, in a Managed Agents sandbox
 
   sh cloud-hunt.sh [--repo <owner/name>] [--commit <sha> | --pr <n> | --ref <branch>] [--issue <file>] [options]
   sh cloud-hunt.sh --watch <session id>   keep watching a running hunt and download its results
@@ -47,9 +47,9 @@ const HELP = `cloud-hunt: parallel Claude Opus bug hunters on a public GitHub re
                            commit (default: its default branch); cloned beside the first; repeatable
   --issue <file>           hunt the root cause of this issue (or --issue-text "<text>")
   --scope "<text>"         what to sweep without an issue, e.g. "src/Parser" (default: the whole repository)
-  --hunters <3-5>          parallel hunters (default 3 with an issue, 4 for a sweep)
-  --effort <high|xhigh>    Opus 5.5 effort for the lead and the hunters (default xhigh)
-  --budget <usd>           spend cap for this session (default 40)
+  --hunters <1-5>          hunters in the session (default 1: one hunter working alone)
+  --effort <high|xhigh>    Opus 5.5 effort (default high)
+  --budget <usd>           spend cap for this session (default 30)
   --extra-rubric <file>    criteria appended to the shipped rubric, e.g. a coverage target
   --iterations <n>         grader rounds before the hunt stops (default 1: stop at the first proven result)
   --cap <usd>              total cap across all hunts in the ledger (default $ANCPLUA_HUNT_CAP or 100)
@@ -61,7 +61,7 @@ const HELP = `cloud-hunt: parallel Claude Opus bug hunters on a public GitHub re
 `;
 
 function parseArgs(argv) {
-  const a = { also: [], hunters: null, effort: "xhigh", budget: 40, iterations: 1, cap: DEFAULT_CAP, minutes: 120, poll: 30 };
+  const a = { also: [], hunters: null, effort: "high", budget: 30, iterations: 1, cap: DEFAULT_CAP, minutes: 120, poll: 30 };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const next = () => {
@@ -284,14 +284,14 @@ async function ensureResources(key, t) {
 function describe({ repo, target, also, hunters, issue, scope }) {
   const where = `https://github.com/${repo} at commit ${target.sha}${target.pr ? ` (the head of pull request #${target.pr})` : ""}`;
   const job = issue
-    ? `Find, prove and fix the root cause of the issue below, and any other bug you prove on the way, in ${where}${scope ? `; scope: ${scope}` : ""}.`
-    : `Hunt the hardest bugs in ${scope || "the whole repository"} of ${where}.`;
+    ? `Find and prove the root cause of the issue below, and any other bug you prove on the way, in ${where}${scope ? `; scope: ${scope}` : ""}.`
+    : `Hunt the hardest bugs and the code-quality findings your instructions describe in ${scope || "the whole repository"} of ${where}.`;
   const related = also.length
     ? ` The cause or the fix may also sit in these related repositories; clone each beside it: ${also.map((r) => `https://github.com/${r.repo} at commit ${r.sha} into /workspace/also/${r.name}`).join("; ")}.`
     : "";
-  const patches = also.map((r) => `, fix-${r.name}.patch when ${r.repo} changed`).join("");
-  const stop = issue ? " Stop at the first verified root cause, as your instructions describe." : "";
-  return `${job}${related} Work with ${hunters} parallel hunters as your instructions describe, and hold every finding to the proof standard.${stop} Deliver under /mnt/session/outputs/: finding-<id>.json the moment each finding is verified, findings.json, the proof files for each finding, verify.sh, fix.patch when anything was proven${patches}, cleanup.patch when unreachable code was deleted, report.md, and each hunter's report and patch.${issue ? `\n\n<issue>\n${issue.trim()}\n</issue>` : ""}`;
+  const stop = issue ? " Stop at the first verified root cause." : "";
+  const team = hunters === 1 ? "Work alone" : `Work with ${hunters} parallel hunters`;
+  return `${job}${related} ${team} as your instructions describe, and hold every bug to the proof standard.${stop} Deliver under /mnt/session/outputs/ exactly the files your instructions list: finding-<id>.json the moment each finding is verified, findings.json, the proof files and test patch of each bug, verify.sh and report.md.${issue ? `\n\n<issue>\n${issue.trim()}\n</issue>` : ""}`;
 }
 
 function rubric(extraFile) {
@@ -488,8 +488,8 @@ async function main() {
 
   a.repo ??= repoFromCwd();
   if (!a.repo) throw new Error("--repo <owner/name> is required outside a git checkout with a GitHub origin");
-  a.hunters ??= a.issue || a.issueText ? 3 : 4;
-  if (!Number.isInteger(a.hunters) || a.hunters < 3 || a.hunters > 5) throw new Error("--hunters must be 3, 4 or 5");
+  a.hunters ??= 1;
+  if (!Number.isInteger(a.hunters) || a.hunters < 1 || a.hunters > 5) throw new Error("--hunters must be 1 to 5");
   if (!["high", "xhigh"].includes(a.effort)) throw new Error("--effort must be high or xhigh");
   if (!Number.isInteger(a.iterations) || a.iterations < 1 || a.iterations > 20) throw new Error("--iterations must be 1-20");
   if (!(a.budget > 0)) throw new Error("--budget must be positive");

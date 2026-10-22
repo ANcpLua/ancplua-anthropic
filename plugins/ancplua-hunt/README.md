@@ -1,14 +1,14 @@
 # ancplua-hunt
 
-Runs Claude Opus bug hunters in parallel and returns proven fixes for your session to judge. The `hunt` skill runs up to
+Runs Claude Opus bug hunters and returns proven findings for your session to fix and ship. The `hunt` skill runs up to
 five hunters on your machine on one issue, each in its own throwaway clone with a different angle: reproduce, trace,
-skeptic, history and contract. The `cloud-hunt` skill runs three to five hunters in Anthropic's cloud sandbox as a Claude
-Managed Agent, on a whole public repository, a scope or an issue, with related repositories cloned beside it when the cause
-may sit there. Every finding comes with proof that doesn't ask to be trusted: a regression test and a standalone
-reproducer that fail before the fix and pass after it, and the cloud hunt adds a `verify.sh` that shows `BUG` on your
-code and `FIXED` with its patch. Fixes are the smallest clean change; deletions of unreachable code come in a separate
-patch. Your session checks the proof, decides what holds, and ships it through the repository's normal review. The
-hunters never push, publish or touch accounts.
+skeptic, history and contract. The `cloud-hunt` skill runs one hunter (up to five on request) in Anthropic's cloud sandbox
+as a Claude Managed Agent, on a whole public repository, a scope or an issue, with related repositories cloned beside it
+when the cause may sit there. Every bug comes with proof that doesn't ask to be trusted: a regression test and a
+standalone reproducer that fail on the commit, and a `verify.sh` that shows `BUG` on your code. The cloud hunter also
+reports C# written below the repository's language level, duplicated code and helper candidates with file:line. The
+hunters fix nothing, never push, publish or touch accounts; your session checks the proof and ships the fix through the
+repository's normal review.
 
 ## Install
 
@@ -22,7 +22,7 @@ claude plugin install ancplua-hunt@ancplua-anthropic
 | Component          | Invoke                                                                                        | What it does                                                                                          |
 |:-------------------|:----------------------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------------------|
 | Skill `hunt`       | `/ancplua-hunt:hunt`, or automatically when you ask for bug hunters on an issue                | Starts local hunters, streams one line per finding, writes a report and one patch each                 |
-| Skill `cloud-hunt` | `/ancplua-hunt:cloud-hunt`, or automatically when you ask for cloud hunters or a repository sweep | Starts a Managed Agents hunt, streams each verified finding as it lands, downloads `findings.json`, `verify.sh`, the proofs, `fix.patch` and the report |
+| Skill `cloud-hunt` | `/ancplua-hunt:cloud-hunt`, or automatically when you ask for cloud hunters or a repository sweep | Starts a Managed Agents hunt, streams each verified finding as it lands, downloads `findings.json`, `verify.sh`, the proofs, the test patches and the report |
 
 ## Requirements
 
