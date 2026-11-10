@@ -19,6 +19,7 @@ it.
 | Plugin                                 | What it does                                                                            |
 |:---------------------------------------|:----------------------------------------------------------------------------------------|
 | [`ancplua-docs`](plugins/ancplua-docs) | Grounds answers about Claude and Claude Code in the current official docs               |
+| [`ancplua-dotnet`](https://github.com/ANcpLua/ancplua-dotnet/tree/main/packages/ancplua-dotnet) | Refactors C#, writes and reviews MSBuild, manages NuGet and SDK versions, adopts Roslyn analyzers, investigates runtime performance and ships layered NuGet releases for SDK-style .NET |
 | [`ancplua-hunt`](plugins/ancplua-hunt) | Runs parallel Opus bug hunters, locally on one issue or in Anthropic's cloud on a whole repository, and returns proven fixes |
 | [`ancplua-lean-proof`](https://github.com/ANcpLua/ancplua-lean-proof) | Proves C#/.NET state machines correct with Lean 4 and turns every counterexample into a reproduced, fixed bug |
 | [`mcp-builder-v2`](https://github.com/ANcpLua/mcp-builder-v2/tree/main/plugins/mcp-builder-v2) | Builds, migrates and checks MCP servers on SDK v2 and spec 2026-07-28, in TypeScript and Python |

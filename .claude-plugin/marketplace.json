@@ -15,8 +15,7 @@
       "source": {
         "source": "git-subdir",
         "url": "https://github.com/ANcpLua/ancplua-dotnet.git",
-        "path": "packages/ancplua-dotnet",
-        "ref": "main"
+        "path": "packages/ancplua-dotnet"
       }
     },
     {

@@ -42,7 +42,8 @@ Marketplace
   entry combines with it. ✓
 - `<source>` is one of three shapes. ✓
   - `"./plugins/<name>"` for a plugin in this repository.
-  - `{ "source": "github", "repo": "<owner>/<repo>" }` for a plugin at the root of another repository.
+  - `{ "source": "url", "url": "https://<host>/<owner>/<repo>.git" }` for a plugin at the root of another repository;
+    the `github` source clones over SSH, which fails on machines that reach GitHub only through HTTPS.
   - `{ "source": "git-subdir", "url": "https://<host>/<owner>/<repo>.git", "path": "<folder>" }` for a plugin in a
     folder of another repository; the `owner/repo` shorthand clones over SSH, which fails without a host key.
   - Never a `ref` or `sha`: the plugin's own repository releases it.
